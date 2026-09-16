@@ -1,0 +1,141 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --font-weight-600: 600;
+  --font-weight-700: 700;
+  --font-weight-800: 800;
+
+  /* Design System SafePass · Single source of truth de color (ISO/IEC 25000) */
+  /* Dark Background Base: #0B101D | rol: lienzo/tótem + texto sobre acento */
+  --color-ink: #0b101d;
+  /* Surface Card: #161F30 | rol: tarjetas y contenedores flotantes */
+  --color-steel: #161f30;
+  /* Surface Inset: #1E283A | rol: cajas internas, pills, nodos de test */
+  --color-steel-2: #1e283a;
+  /* Hairline/Divider: #28354A | rol: bordes de tarjeta y separadores */
+  --color-slate-line: #28354a;
+  /* Text Secondary: #8A99AD | rol: labels, metadatos (AA sobre #0B101D) */
+  --color-fog: #8a99ad;
+  /* Text High-Emphasis frío: #CBD5E1 | rol: valores/numérica no-blanca */
+  --color-mist: #cbd5e1;
+
+  /* Status APTO: #22C55E | umbral score >= 80 */
+  --color-apt: #22c55e;
+  --color-apt-dim: #16a34a;
+  /* Action/Accent: #FFAE00 | rol: CTA activo + estado objetivo de test */
+  --color-semi: #ffae00;
+  /* Action Pressed/Hover: #E09B00 | feedback de estado sobre CTA */
+  --color-semi-dim: #e09b00;
+  --color-no: #ef4444;
+  --color-no-dim: #dc2626;
+}
+
+/* Configuraciones críticas para tótem táctil y PWA */
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  touch-action: manipulation; /* Elimina el retraso de 300ms en toque táctil */
+  -webkit-user-select: none;  /* Evita seleccionar texto al presionar rápido */
+  user-select: none;
+  overscroll-behavior: none;  /* Evita el efecto rebote al deslizar */
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-ink);
+  color: #f1f5f9;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent; /* Elimina destello al tocar en pantallas móviles */
+}
+
+/* Scrollbars: hidden until scroll */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: #334155 transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: #334155;
+  background-clip: padding-box;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+.alert-pulse {
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.scale-in {
+  animation: scale-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes scan {
+  0% {
+    top: 0;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0;
+  }
+}
+
+::selection {
+  background: #f59e0b;
+  color: #0f172a;
+}
