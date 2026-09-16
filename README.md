@@ -4,8 +4,8 @@
 
 ## Integrantes del Equipo
 * Ricardo Moreno - `@ricardomorenom`
-* Martin Lopez - `@usuario_github_2`
-* Carlos Bernales - `@usuario_github_3`
+* Martin Lopez - `@martnlopez`
+* Carlos Bernales - `@velo0o0`
 
 ## Prototipo Navegable
 * [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=JmFVp3fDz8gAiRN5-1)
