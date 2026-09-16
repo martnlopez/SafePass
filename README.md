@@ -8,7 +8,7 @@
 * Carlos Bernales - `@usuario_github_3`
 
 ## Prototipo Navegable
-* [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSVn/Cognitive-Aptitude-Evaluation-UI?t=JmFVp3fDz8gAiRN5-1)
+* [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=JmFVp3fDz8gAiRN5-1)
 
 ## Documentación del Proyecto
 * [Documento de Propuesta (PDF)](./docs/propuesta.pdf)
