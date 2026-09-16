@@ -3,13 +3,12 @@
 > Para empresas mineras que buscan reducir accidentes laborales por fatiga, SAFEPASS es una plataforma de evaluación neurocognitiva que entrega un diagnóstico de aptitud operativa en menos de 5 minutos antes del inicio de cada turno.
 
 ## 👥 Integrantes del Equipo
-* Nombre Integrante 1 - `@usuario_github_1`
-* Nombre Integrante 2 - `@usuario_github_2`
-* Nombre Integrante 3 - `@usuario_github_3`
-* Nombre Integrante 4 - `@usuario_github_4`
+* Ricardo Moreno - `@ricardomorenom`
+* Martin Lopez - `@usuario_github_2`
+* Carlos Bernales - `@usuario_github_3`
 
 ## 🔗 Prototipo Navegable
-* [Acceder al Prototipo Navegable](PEGA_AQUI_TU_ENLACE_DE_FIGMA_O_DESPLIEGUE)
+* [Acceder al Prototipo Navegable]https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=JmFVp3fDz8gAiRN5-1
 
 ## 📁 Documentación del Proyecto
 * [Documento de Propuesta (PDF)](./docs/propuesta.pdf)
