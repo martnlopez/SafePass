@@ -8,7 +8,7 @@
 * Carlos Bernales - `@velo0o0`
 
 ## Prototipo Navegable
-* [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=JmFVp3fDz8gAiRN5-1)
+* [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=gRiIrbmpGvLO9aSp-20&fullscreen=1)
 
 ## Documentación del Proyecto
 * [Documento de Propuesta (PDF)](./docs/propuesta.pdf)
