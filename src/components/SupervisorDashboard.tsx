@@ -37,7 +37,7 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
   ]
 
   return (
-    <div className="min-h-full w-full bg-[color:var(--color-ink)]">
+    <div className="h-screen w-full overflow-y-auto bg-[color:var(--color-ink)]">
       {/* Top bar */}
       <header className="sticky top-0 z-10 border-b border-[color:var(--color-slate-line)] bg-[color:var(--color-ink)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4 lg:px-10">

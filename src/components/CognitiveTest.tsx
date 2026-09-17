@@ -48,7 +48,7 @@ export default function CognitiveTest({
     <div className="flex h-screen w-full flex-col justify-between bg-[color:var(--color-ink)] p-6">
 
       {/* HUD Header: max-w-6xl constriñe el panel en tótems anchos; mobile cae a max-w-md */}
-      <div className="mx-auto w-full max-w-md lg:max-w-6xl">
+      <div className="mx-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl">
         <header className="flex items-center justify-between rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-3.5 lg:px-6 lg:py-4">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-[color:var(--color-semi)] font-mono text-sm font-800 text-[color:var(--color-ink)] lg:h-10 lg:w-10">
@@ -93,7 +93,7 @@ export default function CognitiveTest({
       </div>
 
       {/* Stage area: overflow-hidden garantiza que ningún test desborde el viewport bloqueado */}
-      <div className="mx-auto flex w-full max-w-md flex-1 flex-col overflow-hidden py-4 lg:max-w-3xl">
+      <div className="mx-auto flex w-full max-w-md flex-1 flex-col overflow-hidden py-4 md:max-w-2xl lg:max-w-3xl">
         {phase.kind === "intro" ? (
           <Intro
             key={`intro-${phase.i}`}

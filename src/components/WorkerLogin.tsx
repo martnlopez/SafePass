@@ -79,7 +79,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
 
   function handleLogin() {
     if (!ready) return
-    // Demo: PIN 1234 is the valid PIN for all fichas
+    // Demo: PIN 123456 is valid for all fichas
     if (pin !== "123456") {
       setError(true)
       setPin("")
@@ -218,7 +218,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
           {/* PIN numpad */}
           <div className="fade-up mt-6" style={{ animationDelay: "160ms" }}>
             <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
-              PIN de acceso (4 dígitos)
+              PIN de acceso (6 dígitos)
             </span>
             <div className={`mt-4 rounded-2xl border bg-[color:var(--color-steel)] p-5 transition-colors ${error ? "border-[color:var(--color-no)]" : "border-[color:var(--color-slate-line)]"}`}>
               {error && (

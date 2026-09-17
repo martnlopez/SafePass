@@ -1,3 +1,5 @@
+import { EVALUATIONS } from "../lib/data"
+
 export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string; onStart: () => void }) {
   const today = new Date().toLocaleDateString("es-CL", {
     weekday: "long",
@@ -6,19 +8,22 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
     year: "numeric",
   })
 
+  const worker = EVALUATIONS.find((evaluation) => evaluation.id === fichaId)
+  const score = worker?.score ?? null
+
   const METRICS = [
-    { k: "Racha",          v: "12 días"  },
-    { k: "Último puntaje", v: "94 / 100" },
-    { k: "Evaluaciones",   v: "47 total" },
-    { k: "Promedio",       v: "91 / 100" },
+    { k: "Racha",          v: "Sin historial" },
+    { k: "Último puntaje", v: score === null ? "—" : `${score} / 100` },
+    { k: "Evaluaciones",   v: worker ? "1 actual" : "Sin registro" },
+    { k: "Promedio",       v: score === null ? "—" : `${score} / 100` },
   ]
 
   const TESTS = [
-    { n: "01", label: "Tiempo de reacción (PVT)" },
-    { n: "02", label: "Control inhibitorio (Go / No-Go)" },
-    { n: "03", label: "Memoria de trabajo (N-Back)" },
-    { n: "04", label: "Atención sostenida (Vigilancia)" },
-    { n: "05", label: "Tracking numérico" },
+    { n: "01", label: "Selección de Figuras" },
+    { n: "02", label: "PVT Táctil" },
+    { n: "03", label: "Go / No-Go" },
+    { n: "04", label: "Memoria de Trabajo" },
+    { n: "05", label: "Tracking Numérico" },
   ]
 
   return (
@@ -36,11 +41,15 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">{today}</p>
             <h1 className="mt-1 font-mono text-2xl font-800 tracking-wide text-[color:var(--color-mist)]">{fichaId}</h1>
-            <p className="mt-0.5 text-sm text-[color:var(--color-mist)]">Operador Perforadora · Minera Andina</p>
+            <p className="mt-0.5 text-sm text-[color:var(--color-mist)]">
+              {worker ? `${worker.role} · ${worker.company}` : "Trabajador sin registro"}
+            </p>
           </div>
           <div className="rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-3 py-2 text-center">
             <p className="font-mono text-[10px] uppercase tracking-wider text-[color:var(--color-fog)]">Turno</p>
-            <p className="font-mono text-sm font-700 text-[color:var(--color-semi)]">DÍA</p>
+            <p className="font-mono text-sm font-700 text-[color:var(--color-semi)]">
+              {worker?.shift?.toUpperCase() ?? "SIN TURNO"}
+            </p>
           </div>
         </header>
         <div className="fade-up mt-6 grid grid-cols-2 gap-3" style={{ animationDelay: "60ms" }}>
@@ -91,13 +100,15 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
             <div className="mt-1.5 flex items-baseline gap-4">
               {/* Ley 19.628 (Datos Personales): identificador operacional Ficha ID · RUT prohibido en UI de faena */}
               <h1 className="font-mono text-3xl font-800 tracking-widest text-white">{fichaId}</h1>
-              <span className="text-sm text-[color:var(--color-fog)]">Operador Perforadora · Minera Andina</span>
+              <span className="text-sm text-[color:var(--color-fog)]">
+                {worker ? `${worker.role} · ${worker.company}` : "Trabajador sin registro"}
+              </span>
             </div>
           </div>
           {/* Shift Badge · Accent #FFAE00 sobre Surface #161F30 — pill de estado no interactiva */}
           <div className="rounded-full border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-5 py-2 shadow-lg shadow-black/30">
             <p className="font-mono text-xs font-700 uppercase tracking-[0.25em] text-[color:var(--color-semi)]">
-              Turno Día
+              Turno {worker?.shift ?? "sin asignar"}
             </p>
           </div>
         </header>

@@ -41,7 +41,8 @@ body,
 #root {
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   touch-action: manipulation; /* Elimina el retraso de 300ms en toque táctil */
   -webkit-user-select: none;  /* Evita seleccionar texto al presionar rápido */
   user-select: none;
