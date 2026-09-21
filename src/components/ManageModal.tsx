@@ -14,7 +14,7 @@ const DECISIONS = [
   },
   {
     id: "policlinico",
-    label: "Derivación a Policlínico / Mutua",
+    label: "Derivación a Policlínico / Mutual",
     sub: "Evaluación médica presencial",
   },
   {
