@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useCountdown } from "../lib/useCountdown"
 import { scoreToStatus, STATUS_META, type BatteryResult } from "../lib/data"
-import { startBlock } from "../lib/block"
-import { registerPendingReview } from "../lib/decisions"
-import { createAccessPass, registerPass, type AccessPass } from "../lib/pass"
+import { BLOCK_MS } from "../lib/block"
+import { issueAccessPass, type AccessPass } from "../lib/pass"
+import { formatCompletedTime } from "../lib/results"
 import AccessPassCard from "./AccessPassCard"
 import ScoreScale from "./ScoreScale"
 
@@ -49,22 +49,37 @@ export default function TestResults({
   result,
   onRetry,
   onDone,
+  saveError = null,
 }: {
   result: BatteryResult
   onRetry: () => void
   onDone: () => void
+  /** Error al guardar el resultado en el servidor (null = guardado) */
+  saveError?: string | null
 }) {
   const { score, breakdown, fichaId } = result
   const status = scoreToStatus(score)
   const m = STATUS_META[status]
   const [pass, setPass] = useState<AccessPass | null>(null)
-  // Temporizador solo en SEMI APTO; NO APTO queda a criterio del supervisor
-  const [blockUntil] = useState(() => (status === "semi" ? startBlock(fichaId, result) : 0))
-  // NO APTO: el caso queda en "Revisión pendiente" hasta que el supervisor registre su decisión
-  useEffect(() => {
-    if (status === "no") registerPendingReview(result)
-  }, [status, result])
-  const now =new Date().toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })
+  const [passBusy, setPassBusy] = useState(false)
+  const [passError, setPassError] = useState<string | null>(null)
+  // Temporizador solo en SEMI APTO (5 min desde la hora de finalización que fija el servidor).
+  // NO APTO queda a criterio del supervisor: la base registra la "Revisión pendiente".
+  const completedAt = result.completedAt ?? Date.now()
+  const blockUntil = status === "semi" ? completedAt + BLOCK_MS : 0
+  const finishedAt = formatCompletedTime(completedAt)
+
+  async function generatePass() {
+    setPassBusy(true)
+    setPassError(null)
+    try {
+      setPass(await issueAccessPass())
+    } catch (err) {
+      setPassError((err as Error).message)
+    } finally {
+      setPassBusy(false)
+    }
+  }
 
   const stateLabel =
     status === "apto" ? "APTO" : status === "semi" ? "ZONA CRÍTICA · RE-TEST" : "NO APTO"
@@ -81,7 +96,7 @@ export default function TestResults({
           {/* Top bar */}
           <div className="fade-up flex items-center justify-between">
             <p className="font-mono text-xs uppercase tracking-[0.25em] text-[color:var(--color-fog)]">
-              Evaluación completa · {now}
+              Evaluación completa · {finishedAt}
             </p>
             <p className="font-mono text-xs font-700 text-[color:var(--color-mist)]">{fichaId}</p>
           </div>
@@ -113,23 +128,29 @@ export default function TestResults({
             </p>
           </div>
 
+          {saveError && (
+            <p role="alert" className="mt-5 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
+              <span className="font-700 text-[color:var(--color-no)]">No se pudo guardar el resultado.</span> {saveError} Avisa a tu supervisor.
+            </p>
+          )}
+
           {/* Action button */}
           <div className="fade-up mt-6" style={{ animationDelay: "120ms" }}>
             {status === "apto" && (
-              <button
-                onClick={
-                  pass
-                    ? onDone
-                    : () => {
-                        const p = createAccessPass(fichaId)
-                        registerPass(p)
-                        setPass(p)
-                      }
-                }
-                className="h-16 w-full rounded-xl bg-[color:var(--color-apt)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-apt-dim)] active:scale-[0.99]"
-              >
-                {pass ? "Finalizar y salir" : "Generar pase / QR de acceso"}
-              </button>
+              <>
+                <button
+                  onClick={pass ? onDone : () => void generatePass()}
+                  disabled={passBusy || (!pass && saveError !== null)}
+                  className="h-16 w-full rounded-xl bg-[color:var(--color-apt)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-apt-dim)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pass ? "Finalizar y salir" : passBusy ? "Generando pase…" : "Generar pase / QR de acceso"}
+                </button>
+                {passError && (
+                  <p role="alert" className="mt-3 text-center font-mono text-xs text-[color:var(--color-no)]">
+                    {passError}
+                  </p>
+                )}
+              </>
             )}
             {/* SEMI APTO: reintento bloqueado 5 min (descanso preventivo) + salida secundaria */}
             {status === "semi" && (

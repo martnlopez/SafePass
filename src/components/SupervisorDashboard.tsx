@@ -10,18 +10,17 @@ import Logo from "./Logo"
 type StatusFilter = "todos" | Status
 type ShiftFilter = "todos" | "Día" | "Noche"
 
-export default function SupervisorDashboard({ supervisorId, onBack }: { supervisorId: string; onBack: () => void }) {
+export default function SupervisorDashboard({ onBack }: { onBack: () => void }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
   const [shiftFilter, setShiftFilter] = useState<ShiftFilter>("todos")
   const [company, setCompany] = useState<string>("todas")
   const [managing, setManaging] = useState<Evaluation | null>(null)
-  // Último resultado de cada ficha: se actualiza en cuanto un trabajador termina su evaluación
-  const evaluations = useEvaluations()
-  const fichaIds = useMemo(() => evaluations.map((e) => e.id), [evaluations])
-  // Decisiones por ficha (se actualizan al guardar aquí o cuando se registra un NO APTO)
-  const decisionMap = useDecisions(fichaIds)
+  // Último resultado de cada trabajador (Supabase, en tiempo real desde cualquier dispositivo)
+  const { evaluations, loading, error } = useEvaluations()
+  // Última decisión de cada trabajador (se actualiza al guardar aquí o cuando se registra un NO APTO)
+  const decisionMap = useDecisions()
   const decisionFor = (e: Evaluation) => {
-    const d = decisionMap[e.id]
+    const d = decisionMap[e.workerId]
     return d && isDecisionCurrent(d, e.completedAt) ? d : null
   }
 
@@ -92,6 +91,19 @@ export default function SupervisorDashboard({ supervisorId, onBack }: { supervis
             </p>
           </div>
         </div>
+
+        {(loading || error) && (
+          <p
+            role={error ? "alert" : "status"}
+            className={`mt-4 rounded-xl border px-4 py-3 font-mono text-xs ${
+              error
+                ? "border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 text-[color:var(--color-mist)]"
+                : "border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] text-[color:var(--color-fog)]"
+            }`}
+          >
+            {error ? `No se pudieron cargar las evaluaciones: ${error}` : "Cargando evaluaciones del turno…"}
+          </p>
+        )}
 
         {/* KPIs */}
         <section className="fade-up mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4" style={{ animationDelay: "60ms" }}>
@@ -273,7 +285,9 @@ export default function SupervisorDashboard({ supervisorId, onBack }: { supervis
         </div>
       </main>
 
-      {managing && <ManageModal evaluation={managing} supervisorId={supervisorId} onClose={() => setManaging(null)} />}
+      {managing && (
+        <ManageModal evaluation={managing} current={decisionMap[managing.workerId] ?? null} onClose={() => setManaging(null)} />
+      )}
     </div>
   )
 }

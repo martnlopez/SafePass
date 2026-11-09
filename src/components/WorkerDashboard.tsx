@@ -1,16 +1,16 @@
-import { useMemo } from "react"
-import { EVALUATIONS } from "../lib/data"
-import { getHistory } from "../lib/results"
+import { useEffect, useState } from "react"
+import type { WorkerProfile } from "../lib/auth"
+import { fetchHistory, type StoredResult } from "../lib/results"
 
 const LOGOUT_BTN =
   "rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-2 font-mono text-xs uppercase tracking-wider text-[color:var(--color-mist)] transition-colors hover:border-[color:var(--color-fog)] hover:text-white"
 
 export default function WorkerDashboard({
-  fichaId,
+  profile,
   onStart,
   onLogout,
 }: {
-  fichaId: string
+  profile: WorkerProfile
   onStart: () => void
   onLogout: () => void
 }) {
@@ -21,21 +21,40 @@ export default function WorkerDashboard({
     year: "numeric",
   })
 
-  const worker = EVALUATIONS.find((evaluation) => evaluation.id === fichaId)
-  // Mismo registro que usa el panel de supervisión (lib/results.ts); sin evaluaciones propias, el dato de ejemplo
-  const history = useMemo(() => getHistory(fichaId), [fichaId])
-  const scores = history.length ? history.map((r) => r.score) : worker ? [worker.score] : []
+  const fichaId = profile.fichaId
+  // Perfil y el mismo historial que ve el panel de supervisión (Supabase)
+  const worker = { role: profile.position, company: profile.company ?? "Sin empresa", shift: profile.shift }
+  const [history, setHistory] = useState<StoredResult[]>([])
+  const [historyState, setHistoryState] = useState<"loading" | "ready" | "error">("loading")
+  useEffect(() => {
+    let cancelled = false
+    fetchHistory(profile.id)
+      .then((h) => {
+        if (!cancelled) {
+          setHistory(h)
+          setHistoryState("ready")
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryState("error")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [profile.id])
+  const scores = history.map((r) => r.score)
   const last = scores.length ? scores[scores.length - 1]! : null
   const average = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
   // Racha: evaluaciones APTO consecutivas, desde la más reciente
   let streak = 0
   for (let i = history.length - 1; i >= 0 && history[i]!.status === "apto"; i--) streak++
 
+  const pending = historyState === "loading" ? "…" : historyState === "error" ? "Sin conexión" : null
   const METRICS = [
-    { k: "Racha",          v: history.length ? `${streak} apto${streak === 1 ? "" : "s"}` : "Sin historial" },
-    { k: "Último puntaje", v: last === null ? "—" : `${last} / 100` },
-    { k: "Evaluaciones",   v: history.length ? `${history.length} registrada${history.length === 1 ? "" : "s"}` : worker ? "1 actual" : "Sin registro" },
-    { k: "Promedio",       v: average === null ? "—" : `${average} / 100` },
+    { k: "Racha",          v: pending ?? (history.length ? `${streak} apto${streak === 1 ? "" : "s"}` : "Sin historial") },
+    { k: "Último puntaje", v: pending ?? (last === null ? "—" : `${last} / 100`) },
+    { k: "Evaluaciones",   v: pending ?? (history.length ? `${history.length} registrada${history.length === 1 ? "" : "s"}` : "Sin registro") },
+    { k: "Promedio",       v: pending ?? (average === null ? "—" : `${average} / 100`) },
   ]
 
   const TESTS = [

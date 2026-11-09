@@ -1,95 +1,80 @@
-import { useEffect, useMemo, useState } from "react"
-import { breakdownFromResult, EVALUATIONS, scoreToStatus, type BatteryResult, type Evaluation, type Status } from "./data"
+import { useCallback, useEffect, useState } from "react"
+import { breakdownFromResult, type BatteryResult, type Evaluation, type Status } from "./data"
+import { describeError, supabase } from "./supabase"
 
-// Resultados reales de las evaluaciones rendidas en la app, por Ficha ID
-// (stand-in del Backend/DB, igual que pass.ts / decisions.ts). Los datos de
-// ejemplo (EVALUATIONS) nunca se escriben aquí: se combinan al leer, así que
-// recargar la página o cambiar de sesión jamás pisa un resultado real.
+// Resultados de las evaluaciones en Supabase (tabla evaluations). El servidor fija
+// la hora de finalización y aplica las reglas de re-evaluación al insertar.
 
 export interface StoredResult {
-  fichaId: string
+  id: string
+  workerId: string
   score: number
   status: Status
   /** Momento exacto de finalización (ms) */
   completedAt: number
-  breakdown: BatteryResult["breakdown"]
+  /** null en resultados cargados como datos iniciales (sin desglose real) */
+  breakdown: BatteryResult["breakdown"] | null
 }
 
-type ResultStore = Record<string, StoredResult[]>
-
-const KEY = "safepass:results"
-const CHANGE_EVENT = "safepass:results-change"
-/** Historial máximo por ficha (el más antiguo se descarta) */
-const MAX_HISTORY = 30
-
-function isResult(v: unknown): v is StoredResult {
-  const r = v as StoredResult
-  return (
-    typeof r === "object" &&
-    r !== null &&
-    typeof r.fichaId === "string" &&
-    typeof r.score === "number" &&
-    typeof r.completedAt === "number" &&
-    Array.isArray(r.breakdown)
-  )
+interface EvaluationRow {
+  id: string
+  worker_id: string
+  score: number
+  status: Status
+  completed_at: string
+  breakdown: BatteryResult["breakdown"] | null
 }
 
-function readStore(): ResultStore {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}")
-    if (typeof parsed !== "object" || parsed === null) return {}
-    const store: ResultStore = {}
-    for (const [ficha, list] of Object.entries(parsed as Record<string, unknown>)) {
-      if (Array.isArray(list)) store[ficha] = list.filter(isResult)
-    }
-    return store
-  } catch {
-    return {}
+const COLUMNS = "id, worker_id, score, status, completed_at, breakdown"
+
+function toResult(row: EvaluationRow): StoredResult {
+  return {
+    id: row.id,
+    workerId: row.worker_id,
+    score: row.score,
+    status: row.status,
+    completedAt: new Date(row.completed_at).getTime(),
+    breakdown: row.breakdown,
   }
 }
 
-/** Registra una evaluación terminada (APTO, SEMI APTO o NO APTO) */
-export function recordResult(result: BatteryResult, completedAt = Date.now()): StoredResult {
-  const entry: StoredResult = {
-    fichaId: result.fichaId.toUpperCase(),
-    score: result.score,
-    status: scoreToStatus(result.score),
-    completedAt,
-    breakdown: result.breakdown,
-  }
-  const store = readStore()
-  store[entry.fichaId] = [...(store[entry.fichaId] ?? []), entry].slice(-MAX_HISTORY)
-  try {
-    localStorage.setItem(KEY, JSON.stringify(store))
-  } catch {
-    // sin storage: el resultado no llega al panel de supervisión
-  }
-  window.dispatchEvent(new Event(CHANGE_EVENT))
-  return entry
+/** Registra una evaluación terminada (APTO, SEMI APTO o NO APTO) del trabajador autenticado */
+export async function recordResult(workerId: string, result: BatteryResult): Promise<StoredResult> {
+  const { data, error } = await supabase
+    .from("evaluations")
+    .insert({ worker_id: workerId, score: result.score, status: statusOf(result.score), breakdown: result.breakdown })
+    .select(COLUMNS)
+    .single<EvaluationRow>()
+  if (error || !data) throw new Error(describeError(error))
+  return toResult(data)
 }
 
-/** Historial de una ficha, del más antiguo al más reciente */
-export function getHistory(fichaId: string): StoredResult[] {
-  return readStore()[fichaId.toUpperCase()] ?? []
+function statusOf(score: number): Status {
+  if (score >= 80) return "apto"
+  if (score >= 60) return "semi"
+  return "no"
 }
 
-/** Estado del registro, actualizado al guardar en esta pestaña o en otra (trabajador ↔ panel) */
-export function useResultStore(): ResultStore {
-  const [store, setStore] = useState(readStore)
-  useEffect(() => {
-    const refresh = () => setStore(readStore())
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === KEY) refresh()
-    }
-    refresh()
-    window.addEventListener(CHANGE_EVENT, refresh)
-    window.addEventListener("storage", onStorage)
-    return () => {
-      window.removeEventListener(CHANGE_EVENT, refresh)
-      window.removeEventListener("storage", onStorage)
-    }
-  }, [])
-  return store
+/** Historial de un trabajador, del más antiguo al más reciente */
+export async function fetchHistory(workerId: string): Promise<StoredResult[]> {
+  const { data, error } = await supabase
+    .from("evaluations")
+    .select(COLUMNS)
+    .eq("worker_id", workerId)
+    .order("completed_at", { ascending: true })
+    .returns<EvaluationRow[]>()
+  if (error) throw new Error(describeError(error))
+  return (data ?? []).map(toResult)
+}
+
+export async function fetchLatestResult(workerId: string): Promise<StoredResult | null> {
+  const { data, error } = await supabase
+    .from("latest_evaluations")
+    .select(COLUMNS)
+    .eq("worker_id", workerId)
+    .maybeSingle<EvaluationRow>()
+  if (error) throw new Error(describeError(error))
+  return data ? toResult(data) : null
 }
 
 export function formatCompletedTime(ts: number, withSeconds = false): string {
@@ -105,51 +90,78 @@ export function formatCompletedTime(ts: number, withSeconds = false): string {
   return today ? time : `${d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" })} ${time}`
 }
 
-/** Fichas sin perfil en los datos de ejemplo: el turno se infiere de la hora de finalización */
-function unknownWorkerRow(latest: StoredResult): Evaluation {
-  const hour = new Date(latest.completedAt).getHours()
+interface WorkerRow {
+  id: string
+  ficha_id: string
+  full_name: string
+  position: string
+  company: string | null
+  shift: "Día" | "Noche"
+}
+
+/** Fila del panel: perfil del trabajador + su último resultado */
+function toPanelRow(worker: WorkerRow, latest: StoredResult): Evaluation {
   return {
-    id: latest.fichaId,
-    name: "Trabajador sin registro",
-    rut: "—",
-    role: "Sin registro",
-    company: "Sin empresa",
-    shift: hour >= 7 && hour < 19 ? "Día" : "Noche",
+    id: worker.ficha_id,
+    workerId: worker.id,
+    name: worker.full_name,
+    role: worker.position,
+    company: worker.company ?? "Sin empresa",
+    shift: worker.shift,
     score: latest.score,
-    time: formatCompletedTime(latest.completedAt),
     status: latest.status,
+    time: formatCompletedTime(latest.completedAt),
+    completedAt: latest.completedAt,
+    ...(latest.breakdown ? { breakdown: breakdownFromResult(latest.breakdown), live: true } : {}),
   }
+}
+
+async function fetchPanelRows(): Promise<Evaluation[]> {
+  const [workers, latest] = await Promise.all([
+    supabase.from("workers").select("id, ficha_id, full_name, position, company, shift").order("ficha_id").returns<WorkerRow[]>(),
+    supabase.from("latest_evaluations").select(COLUMNS).returns<EvaluationRow[]>(),
+  ])
+  if (workers.error) throw new Error(describeError(workers.error))
+  if (latest.error) throw new Error(describeError(latest.error))
+  const byWorker = new Map((latest.data ?? []).map((r) => [r.worker_id, toResult(r)]))
+  return (workers.data ?? [])
+    .filter((w) => byWorker.has(w.id))
+    .map((w) => toPanelRow(w, byWorker.get(w.id)!))
+    .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0))
+}
+
+export interface PanelState {
+  evaluations: Evaluation[]
+  loading: boolean
+  error: string | null
 }
 
 /**
- * Lista del panel: perfil de ejemplo + último resultado real de cada ficha.
- * Las fichas con resultado real que no están en los datos de ejemplo se agregan al final.
+ * Evaluaciones del turno para el panel de supervisión: último resultado de cada trabajador.
+ * Se actualiza en tiempo real cuando cualquier dispositivo registra una evaluación.
  */
-export function mergeEvaluations(base: readonly Evaluation[], store: ResultStore): Evaluation[] {
-  const withLatest = (row: Evaluation): Evaluation => {
-    const list = store[row.id]
-    const latest = list?.[list.length - 1]
-    if (!latest) return row
-    return {
-      ...row,
-      score: latest.score,
-      status: latest.status,
-      time: formatCompletedTime(latest.completedAt),
-      completedAt: latest.completedAt,
-      breakdown: breakdownFromResult(latest.breakdown),
-      live: true,
-    }
-  }
-  const known = new Set(base.map((e) => e.id))
-  const extra = Object.keys(store)
-    .filter((id) => !known.has(id) && store[id]!.length > 0)
-    .map((id) => unknownWorkerRow(store[id]![store[id]!.length - 1]!))
-    .sort((a, b) => a.id.localeCompare(b.id))
-  return [...base, ...extra].map(withLatest)
-}
+export function useEvaluations(): PanelState {
+  const [state, setState] = useState<PanelState>({ evaluations: [], loading: true, error: null })
 
-/** Evaluaciones del turno para el panel de supervisión, siempre con el último resultado */
-export function useEvaluations(): Evaluation[] {
-  const store = useResultStore()
-  return useMemo(() => mergeEvaluations(EVALUATIONS, store), [store])
+  const load = useCallback(async () => {
+    try {
+      const evaluations = await fetchPanelRows()
+      setState({ evaluations, loading: false, error: null })
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: (err as Error).message }))
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+    const channel = supabase
+      .channel("panel-evaluaciones")
+      .on("postgres_changes", { event: "*", schema: "public", table: "evaluations" }, () => void load())
+      .subscribe()
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [load])
+
+  return state
 }

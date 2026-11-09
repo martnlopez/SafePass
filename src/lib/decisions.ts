@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react"
-import { scoreToStatus, type BatteryResult, type Status } from "./data"
+import { useCallback, useEffect, useState } from "react"
+import type { Status } from "./data"
+import { describeError, supabase } from "./supabase"
 
-// Decisiones del supervisor sobre un caso, compartidas entre el panel de
-// supervisión y la vista del trabajador. Persistidas por Ficha ID en
-// localStorage (stand-in del Backend/DB, igual que pass.ts y block.ts): el
-// registro mapea 1:1 a evaluations.supervisor_decision / supervisor_note.
+// Decisiones del supervisor sobre un caso (tabla decisions en Supabase), compartidas
+// entre el panel de supervisión y la vista del trabajador. El servidor fija la hora,
+// el autor y el resultado de referencia; los NO APTO generan automáticamente
+// "Revisión pendiente". Ver supabase/migrations.
 
 /** Descanso obligatorio antes del re-test autorizado, contado desde que el supervisor notifica */
 export const RETEST_REST_MINUTES = 15
@@ -102,7 +103,8 @@ export function decisionOption(id: DecisionId): DecisionOption {
 }
 
 export interface SupervisorDecision {
-  fichaId: string
+  id: string
+  workerId: string
   decision: DecisionId
   /** Comentario visible para el trabajador (null si no hay) */
   note: string | null
@@ -110,98 +112,78 @@ export interface SupervisorDecision {
   decidedBy: string | null
   decidedAt: number
   /** Resultado que motivó la decisión (escala 0-100) */
-  evaluation: { score: number; status: Status }
+  evaluation: { score: number; status: Status } | null
   /** El trabajador vio la decisión al ingresar con su Ficha ID */
   seenAt: number | null
   /** El trabajador usó la autorización (inició el re-test o emitió el pase) */
   consumedAt: number | null
 }
 
-const PREFIX = "safepass:decision:"
-const key = (fichaId: string) => `${PREFIX}${fichaId.toUpperCase()}`
-const CHANGE_EVENT = "safepass:decision-change"
-
-function isDecision(v: unknown): v is SupervisorDecision {
-  const d = v as SupervisorDecision
-  return (
-    typeof d === "object" &&
-    d !== null &&
-    typeof d.fichaId === "string" &&
-    DECISIONS.some((o) => o.id === d.decision) &&
-    typeof d.decidedAt === "number" &&
-    typeof d.evaluation?.score === "number"
-  )
-}
-
-export function getDecision(fichaId: string): SupervisorDecision | null {
-  try {
-    const raw = localStorage.getItem(key(fichaId))
-    if (!raw) return null
-    const parsed: unknown = JSON.parse(raw)
-    return isDecision(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-function write(record: SupervisorDecision) {
-  try {
-    localStorage.setItem(key(record.fichaId), JSON.stringify(record))
-  } catch {
-    // sin storage: la decisión no llega a la vista del trabajador
-  }
-  // Mismo documento: el evento `storage` solo llega a las otras pestañas
-  window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: record.fichaId }))
-}
-
-/** Panel de supervisión: registra (o reemplaza) la decisión vigente del caso */
-export function saveDecision(input: {
-  fichaId: string
+interface DecisionRow {
+  id: string
+  worker_id: string
   decision: DecisionId
-  note: string
-  decidedBy: string | null
-  score: number
-}): SupervisorDecision {
-  const note = input.note.trim().slice(0, NOTE_MAX_LENGTH)
-  const record: SupervisorDecision = {
-    fichaId: input.fichaId.toUpperCase(),
-    decision: input.decision,
-    note: note || null,
-    decidedBy: input.decidedBy,
-    decidedAt: Date.now(),
-    evaluation: { score: input.score, status: scoreToStatus(input.score) },
-    seenAt: null,
-    consumedAt: null,
+  note: string | null
+  decided_by_ficha: string | null
+  decided_at: string
+  evaluation_score: number | null
+  evaluation_status: Status | null
+  seen_at: string | null
+  consumed_at: string | null
+}
+
+const COLUMNS =
+  "id, worker_id, decision, note, decided_by_ficha, decided_at, evaluation_score, evaluation_status, seen_at, consumed_at"
+
+const ms = (iso: string | null) => (iso ? new Date(iso).getTime() : null)
+
+function toDecision(row: DecisionRow): SupervisorDecision {
+  return {
+    id: row.id,
+    workerId: row.worker_id,
+    decision: row.decision,
+    note: row.note,
+    decidedBy: row.decided_by_ficha,
+    decidedAt: new Date(row.decided_at).getTime(),
+    evaluation:
+      row.evaluation_score !== null && row.evaluation_status !== null
+        ? { score: row.evaluation_score, status: row.evaluation_status }
+        : null,
+    seenAt: ms(row.seen_at),
+    consumedAt: ms(row.consumed_at),
   }
-  write(record)
-  return record
+}
+
+/** Panel de supervisión: registra una nueva decisión sobre el caso (pasa a ser la vigente) */
+export async function saveDecision(input: { workerId: string; decision: DecisionId; note: string }): Promise<SupervisorDecision> {
+  const note = input.note.trim().slice(0, NOTE_MAX_LENGTH)
+  const { data, error } = await supabase
+    .from("decisions")
+    .insert({ worker_id: input.workerId, decision: input.decision, note: note || null })
+    .select(COLUMNS)
+    .single<DecisionRow>()
+  if (error || !data) throw new Error(describeError(error))
+  return toDecision(data)
+}
+
+export async function fetchLatestDecision(workerId: string): Promise<SupervisorDecision | null> {
+  const { data, error } = await supabase
+    .from("latest_decisions")
+    .select(COLUMNS)
+    .eq("worker_id", workerId)
+    .maybeSingle<DecisionRow>()
+  if (error) throw new Error(describeError(error))
+  return data ? toDecision(data) : null
 }
 
 /**
- * Resultado NO APTO: el caso queda automáticamente en "Revisión pendiente"
- * hasta que el supervisor decida (el trabajador no puede volver a rendir por su cuenta).
+ * Decisión que el trabajador debe ver al iniciar sesión: posterior a su último resultado y
+ * aún sin usar. Las autorizaciones (re-test / pase) se muestran hasta que se usan; los bloqueos, siempre.
  */
-export function registerPendingReview(result: BatteryResult) {
-  write({
-    fichaId: result.fichaId.toUpperCase(),
-    decision: "revision",
-    note: null,
-    decidedBy: null,
-    decidedAt: Date.now(),
-    evaluation: { score: result.score, status: scoreToStatus(result.score) },
-    seenAt: null,
-    consumedAt: null,
-  })
-}
-
-/**
- * Decisión que el trabajador debe ver al iniciar sesión.
- * Las autorizaciones (re-test / pase) se muestran hasta que se usan; los bloqueos, siempre.
- */
-export function getPendingDecisionForWorker(fichaId: string): SupervisorDecision | null {
-  const d = getDecision(fichaId)
-  if (!d) return null
-  return d.consumedAt === null ? d : null
+export async function fetchPendingDecisionForWorker(workerId: string, lastResultAt?: number): Promise<SupervisorDecision | null> {
+  const d = await fetchLatestDecision(workerId)
+  if (!d || d.consumedAt !== null) return null
+  return isDecisionCurrent(d, lastResultAt) ? d : null
 }
 
 /** Re-test autorizado: momento desde el que el trabajador puede volver a rendir (null en otras decisiones) */
@@ -210,43 +192,44 @@ export function retestAvailableAt(d: SupervisorDecision): number | null {
 }
 
 /**
- * Una decisión solo sigue vigente en el panel si es posterior al último resultado de la ficha:
+ * Una decisión solo sigue vigente si es posterior al último resultado de la ficha:
  * si el trabajador ya rindió una nueva evaluación, la decisión anterior quedó atrás.
  */
 export function isDecisionCurrent(d: SupervisorDecision, lastResultAt?: number): boolean {
   return lastResultAt === undefined || d.decidedAt >= lastResultAt
 }
 
-export function markDecisionSeen(fichaId: string) {
-  const d = getDecision(fichaId)
-  if (d && d.seenAt === null) write({ ...d, seenAt: Date.now() })
+/** Marca la decisión como vista por el trabajador (informativo: si falla no bloquea el flujo) */
+export async function markDecisionSeen(decisionId: string): Promise<void> {
+  await supabase.rpc("mark_decision_seen", { p_decision_id: decisionId })
 }
 
-export function markDecisionConsumed(fichaId: string) {
-  const d = getDecision(fichaId)
-  if (d && decisionOption(d.decision).effect !== "block") write({ ...d, consumedAt: Date.now() })
+/** Inicia el re-test autorizado; el servidor verifica que el descanso ya terminó */
+export async function startAuthorizedRetest(decisionId: string): Promise<void> {
+  const { error } = await supabase.rpc("start_authorized_retest", { p_decision_id: decisionId })
+  if (error) throw new Error(describeError(error))
 }
 
-/** Decisiones de varias fichas, actualizadas al guardar en esta pestaña o en otra (trabajador / panel) */
-export function useDecisions(fichaIds: readonly string[]): Record<string, SupervisorDecision | null> {
-  const load = () => Object.fromEntries(fichaIds.map((id) => [id.toUpperCase(), getDecision(id)]))
-  const [map, setMap] = useState(load)
-  const idsKey = fichaIds.join("|")
+/** Última decisión de cada trabajador (por workers.id), en tiempo real para el panel */
+export function useDecisions(): Record<string, SupervisorDecision> {
+  const [map, setMap] = useState<Record<string, SupervisorDecision>>({})
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase.from("latest_decisions").select(COLUMNS).returns<DecisionRow[]>()
+    if (error) return
+    setMap(Object.fromEntries((data ?? []).map((row) => [row.worker_id, toDecision(row)])))
+  }, [])
 
   useEffect(() => {
-    const refresh = () => setMap(load())
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key.startsWith(PREFIX)) refresh()
-    }
-    refresh()
-    window.addEventListener(CHANGE_EVENT, refresh)
-    window.addEventListener("storage", onStorage)
+    void load()
+    const channel = supabase
+      .channel("panel-decisiones")
+      .on("postgres_changes", { event: "*", schema: "public", table: "decisions" }, () => void load())
+      .subscribe()
     return () => {
-      window.removeEventListener(CHANGE_EVENT, refresh)
-      window.removeEventListener("storage", onStorage)
+      void supabase.removeChannel(channel)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey])
+  }, [load])
 
   return map
 }

@@ -63,48 +63,25 @@ export function scoreToStatus(score: number): Status {
   return "no"
 }
 
+/** Fila del panel de supervisión: perfil + último resultado (lib/results.ts) */
 export interface Evaluation {
+  /** Ficha ID */
   id: string
+  /** id del trabajador en Supabase (workers.id) */
+  workerId: string
   name: string
-  rut: string
   role: string
   company: string
   shift: "Día" | "Noche"
   score: number
   time: string
   status: Status
-  /** Resultados reales (lib/results.ts): momento exacto de finalización y desglose por prueba */
+  /** Momento exacto de finalización (ms) */
   completedAt?: number
+  /** Desglose real por prueba (ausente en los datos iniciales cargados en la base) */
   breakdown?: TestFault[]
-  /** true = la fila refleja una evaluación rendida en la app (no el dato de ejemplo) */
+  /** true = evaluación rendida en la app (con desglose real) */
   live?: boolean
-}
-
-const rows: Omit<Evaluation, "status">[] = [
-  { id: "TRB-0431", name: "Camila Fuentes", rut: "18.442.901-7", role: "Operadora CAEX", company: "Minera Andina", shift: "Día", score: 94, time: "06:12" },
-  { id: "TRB-0288", name: "Rodrigo Salinas", rut: "16.098.334-2", role: "Mantenedor Mecánico", company: "SGS Contratistas", shift: "Día", score: 88, time: "06:18" },
-  { id: "TRB-0512", name: "Héctor Manríquez", rut: "13.554.720-9", role: "Operador Perforadora", company: "Minera Andina", shift: "Noche", score: 47, time: "06:21" },
-  { id: "TRB-0107", name: "Valentina Rojas", rut: "19.877.145-K", role: "Geóloga de Terreno", company: "Consorcio Sur", shift: "Día", score: 91, time: "06:24" },
-  { id: "TRB-0399", name: "Ignacio Peña", rut: "17.220.988-4", role: "Operador Cargador", company: "SGS Contratistas", shift: "Noche", score: 72, time: "06:27" },
-  { id: "TRB-0645", name: "Marisol Cárcamo", rut: "15.301.677-1", role: "Supervisora Planta", company: "Minera Andina", shift: "Día", score: 86, time: "06:31" },
-  { id: "TRB-0233", name: "Diego Villalobos", rut: "20.114.552-8", role: "Operador CAEX", company: "Consorcio Sur", shift: "Noche", score: 54, time: "06:34" },
-  { id: "TRB-0578", name: "Francisca Núñez", rut: "18.990.203-6", role: "Prevencionista", company: "Minera Andina", shift: "Día", score: 97, time: "06:38" },
-  { id: "TRB-0461", name: "Sebastián Órdenes", rut: "16.774.319-0", role: "Eléctrico Industrial", company: "SGS Contratistas", shift: "Día", score: 65, time: "06:42" },
-  { id: "TRB-0092", name: "Andrés Tapia", rut: "14.209.887-3", role: "Operador Perforadora", company: "Consorcio Sur", shift: "Noche", score: 42, time: "06:45" },
-  { id: "TRB-0704", name: "Josefa Miranda", rut: "21.008.774-5", role: "Laboratorista", company: "Minera Andina", shift: "Día", score: 89, time: "06:49" },
-  { id: "TRB-0356", name: "Cristián Álvarez", rut: "15.882.640-2", role: "Mantenedor Mecánico", company: "SGS Contratistas", shift: "Noche", score: 78, time: "06:52" },
-]
-
-export type Role = "worker" | "supervisor"
-
-// Credenciales de prueba (PIN demo común: 123456). Cualquier otra ficha entra como trabajador.
-export const TEST_USERS: Record<string, { role: Role; label: string }> = {
-  "TRB-0512": { role: "worker", label: "Operador" },
-  "TRB-0513": { role: "supervisor", label: "Supervisor" },
-}
-
-export function roleForFicha(fichaId: string): Role {
-  return TEST_USERS[fichaId.toUpperCase()]?.role ?? "worker"
 }
 
 // Auto-formato de Ficha ID: 3 letras + "-" + hasta 4 dígitos (ej. TRB-0512).
@@ -117,8 +94,6 @@ export function formatFicha(raw: string, previous = ""): string {
   if (!digits) return deleting ? letters : `${letters}-`
   return `${letters}-${digits}`
 }
-
-export const EVALUATIONS: Evaluation[] = rows.map((r) => ({ ...r, status: scoreToStatus(r.score) }))
 
 // --- Cognitive battery model -------------------------------------------------
 
@@ -137,6 +112,8 @@ export interface BatteryResult {
   score: number // 0-100 global
   z: number // z-score vs baseline (uso interno; no se muestra al trabajador)
   breakdown: { key: TestKey; name: string; score: number; detail: string }[]
+  /** Hora de finalización fijada por el servidor (ms), una vez guardado */
+  completedAt?: number
 }
 
 // z-score derived from global score against a modeled baseline (µ=78, σ=11)

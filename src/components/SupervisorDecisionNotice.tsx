@@ -3,13 +3,13 @@ import { STATUS_META } from "../lib/data"
 import {
   decisionOption,
   formatDecisionTime,
-  markDecisionConsumed,
   markDecisionSeen,
   retestAvailableAt,
   RETEST_REST_MINUTES,
+  startAuthorizedRetest,
   type SupervisorDecision,
 } from "../lib/decisions"
-import { createAccessPass, registerPass, type AccessPass } from "../lib/pass"
+import { issueAccessPass, type AccessPass } from "../lib/pass"
 import { useCountdown } from "../lib/useCountdown"
 import AccessPassCard from "./AccessPassCard"
 
@@ -19,33 +19,49 @@ import AccessPassCard from "./AccessPassCard"
 // re-test autorizado espera el descanso indicado por el supervisor.
 export default function SupervisorDecisionNotice({
   decision,
+  fichaId,
   onStartTest,
   onExit,
 }: {
   decision: SupervisorDecision
+  fichaId: string
   onStartTest: () => void
   onExit: () => void
 }) {
   const option = decisionOption(decision.decision)
   const tone = STATUS_META[option.tone]
-  const resultMeta = STATUS_META[decision.evaluation.status]
+  const resultMeta = decision.evaluation ? STATUS_META[decision.evaluation.status] : null
   const [pass, setPass] = useState<AccessPass | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => {
-    markDecisionSeen(decision.fichaId)
-  }, [decision.fichaId])
+    void markDecisionSeen(decision.id)
+  }, [decision.id])
 
-  function startTest() {
-    markDecisionConsumed(decision.fichaId)
-    onStartTest()
+  // El servidor confirma el descanso y marca la autorización como usada
+  async function run(action: () => Promise<void>) {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await action()
+    } catch (err) {
+      setActionError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function issuePass() {
-    const p = createAccessPass(decision.fichaId)
-    registerPass(p)
-    markDecisionConsumed(decision.fichaId)
-    setPass(p)
-  }
+  const startTest = () =>
+    run(async () => {
+      await startAuthorizedRetest(decision.id)
+      onStartTest()
+    })
+
+  const issuePass = () =>
+    run(async () => {
+      setPass(await issueAccessPass())
+    })
 
   const primary =
     "h-16 w-full rounded-xl text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all active:scale-[0.99]"
@@ -60,7 +76,7 @@ export default function SupervisorDecisionNotice({
           <p className="font-mono text-xs uppercase tracking-[0.25em] text-[color:var(--color-fog)]">
             Decisión del supervisor
           </p>
-          <p className="font-mono text-xs font-700 text-[color:var(--color-mist)]">{decision.fichaId}</p>
+          <p className="font-mono text-xs font-700 text-[color:var(--color-mist)]">{fichaId}</p>
         </div>
 
         {/* Decisión oficial */}
@@ -75,12 +91,14 @@ export default function SupervisorDecisionNotice({
           <p className="mt-3 text-base leading-relaxed text-[color:var(--color-mist)]">{option.workerMessage}</p>
 
           <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-wider text-[color:var(--color-fog)]">
-            <span>
-              Resultado revisado:{" "}
-              <span className={`font-700 ${resultMeta.text}`}>
-                {decision.evaluation.score} pts · {resultMeta.short}
+            {decision.evaluation && resultMeta && (
+              <span>
+                Resultado revisado:{" "}
+                <span className={`font-700 ${resultMeta.text}`}>
+                  {decision.evaluation.score} pts · {resultMeta.short}
+                </span>
               </span>
-            </span>
+            )}
             <span>
               {decision.decidedBy ? `Supervisor ${decision.decidedBy}` : "Registro automático"} ·{" "}
               {formatDecisionTime(decision.decidedAt)}
@@ -107,16 +125,22 @@ export default function SupervisorDecisionNotice({
               Pase de acceso a faena · excepcional
             </p>
             <div className="mt-4">
-              <AccessPassCard pass={pass} fichaId={decision.fichaId} accentHex={tone.hex} />
+              <AccessPassCard pass={pass} fichaId={fichaId} accentHex={tone.hex} />
             </div>
           </div>
+        )}
+
+        {actionError && (
+          <p role="alert" className="mt-4 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-center text-sm text-[color:var(--color-mist)]">
+            {actionError}
+          </p>
         )}
 
         {/* Acciones según el efecto de la decisión */}
         <div className="fade-up mt-6 space-y-3" style={{ animationDelay: "120ms" }}>
           {option.effect === "retest" && (
             <>
-              <RetestGate availableAt={retestAvailableAt(decision) ?? 0} onStart={startTest} primary={primary} />
+              <RetestGate availableAt={retestAvailableAt(decision) ?? 0} onStart={() => void startTest()} busy={busy} primary={primary} />
               <button onClick={onExit} className={secondary}>
                 Cerrar sesión
               </button>
@@ -129,8 +153,12 @@ export default function SupervisorDecisionNotice({
               </button>
             ) : (
               <>
-                <button onClick={issuePass} className={`${primary} bg-[color:var(--color-apt)] hover:bg-[color:var(--color-apt-dim)]`}>
-                  Generar pase / QR de acceso
+                <button
+                  onClick={() => void issuePass()}
+                  disabled={busy}
+                  className={`${primary} bg-[color:var(--color-apt)] hover:bg-[color:var(--color-apt-dim)] disabled:opacity-60`}
+                >
+                  {busy ? "Generando pase…" : "Generar pase / QR de acceso"}
                 </button>
                 <button onClick={onExit} className={secondary}>
                   Cerrar sesión
@@ -154,7 +182,17 @@ export default function SupervisorDecisionNotice({
 }
 
 /** Re-test autorizado: descanso obligatorio con cuenta regresiva antes de habilitar la evaluación */
-function RetestGate({ availableAt, onStart, primary }: { availableAt: number; onStart: () => void; primary: string }) {
+function RetestGate({
+  availableAt,
+  onStart,
+  busy,
+  primary,
+}: {
+  availableAt: number
+  onStart: () => void
+  busy: boolean
+  primary: string
+}) {
   const { left, clock } = useCountdown(availableAt)
   const ready = left <= 0
 
@@ -183,15 +221,15 @@ function RetestGate({ availableAt, onStart, primary }: { availableAt: number; on
         </span>
       </div>
       <button
-        onClick={ready ? onStart : undefined}
-        disabled={!ready}
+        onClick={ready && !busy ? onStart : undefined}
+        disabled={!ready || busy}
         className={
           ready
             ? `${primary} bg-[color:var(--color-semi)] hover:bg-[color:var(--color-semi-dim)]`
             : "h-16 w-full cursor-not-allowed rounded-xl bg-[color:var(--color-steel)] font-mono text-base font-700 uppercase tracking-wide text-[color:var(--color-fog)] opacity-50"
         }
       >
-        {ready ? "Continuar a la evaluación" : `Disponible en ${clock} min`}
+        {!ready ? `Disponible en ${clock} min` : busy ? "Verificando…" : "Continuar a la evaluación"}
       </button>
     </>
   )

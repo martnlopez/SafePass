@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import Logo from "./Logo"
 import CameraScanner from "./CameraScanner"
-import { formatFicha, roleForFicha, type Role } from "../lib/data"
+import { signIn, type WorkerProfile } from "../lib/auth"
+import { formatFicha } from "../lib/data"
 
 const PIN_LENGTH = 6
 
@@ -60,7 +61,7 @@ function NumPad({ pin, onChange }: { pin: string; onChange: (p: string) => void 
   )
 }
 
-export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, role: Role) => void }) {
+export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProfile) => Promise<void> }) {
   const [ficha, setFicha] = useState("")
   const [pin, setPin] = useState("")
   const [scanOpen, setScanOpen] = useState(false)
@@ -69,7 +70,9 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
   const [forgot, setForgot] = useState(false)
   const [email, setEmail] = useState("")
   const [toast, setToast] = useState(false)
-  const [error, setError] = useState(false)
+  // Mensaje de error del login (null = sin error)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const fichaRef = useRef<HTMLInputElement>(null)
 
   // Puesto con teclado físico: foco inicial en la ficha (en táctil no, para no abrir el teclado virtual)
@@ -90,7 +93,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
       } else if (e.key === "Delete" || e.key === "Escape") {
         setPin("")
       } else if (e.key === "Enter") {
-        if (t.tagName !== "BUTTON") handleLoginRef.current()
+        if (t.tagName !== "BUTTON") void handleLoginRef.current()
       }
     }
     window.addEventListener("keydown", onKeyDown)
@@ -120,18 +123,24 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
     fichaRef.current?.focus()
   }
 
-  function handleLogin() {
-    if (!ready) return
-    // Demo: PIN 123456 is valid for all fichas
-    if (pin !== "123456") {
-      setError(true)
+  async function handleLogin() {
+    if (!ready || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await signIn(ficha.trim().toUpperCase(), pin)
+      if (!result.ok) {
+        setError(result.message)
+        setPin("")
+        return
+      }
+      await onLogin(result.profile)
+    } catch {
+      setError("No se pudo ingresar. Inténtalo de nuevo.")
       setPin("")
-      setTimeout(() => setError(false), 2200)
-      return
+    } finally {
+      setBusy(false)
     }
-    setError(false)
-    const id = ficha.trim().toUpperCase()
-    onLogin(id, roleForFicha(id))
   }
   const handleLoginRef = useRef(handleLogin)
   handleLoginRef.current = handleLogin
@@ -254,7 +263,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault()
-                    if (ready) handleLogin()
+                    if (ready) void handleLogin()
                     else fichaRef.current?.blur()
                   }
                 }}
@@ -279,8 +288,8 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
             </span>
             <div className={`mt-4 rounded-2xl border bg-[color:var(--color-steel)] p-5 transition-colors ${error ? "border-[color:var(--color-no)]" : "border-[color:var(--color-slate-line)]"}`}>
               {error && (
-                <p className="mb-3 text-center font-mono text-xs font-700 uppercase tracking-wider text-[color:var(--color-no)]">
-                  PIN incorrecto · intenta de nuevo
+                <p role="alert" className="mb-3 text-center font-mono text-xs font-700 uppercase tracking-wider text-[color:var(--color-no)]">
+                  {error}
                 </p>
               )}
               <NumPad pin={pin} onChange={setPin} />
@@ -313,12 +322,12 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, ro
           </button>
 
           <button
-            disabled={!ready}
-            onClick={handleLogin}
+            disabled={!ready || busy}
+            onClick={() => void handleLogin()}
             className="fade-up mt-8 h-20 w-full rounded-2xl bg-[color:var(--color-semi)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[color:var(--color-steel-2)] disabled:text-[color:var(--color-fog)]"
             style={{ animationDelay: "260ms" }}
           >
-            Ingresar al sistema
+            {busy ? "Ingresando…" : "Ingresar al sistema"}
           </button>
 
           <button

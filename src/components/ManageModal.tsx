@@ -4,52 +4,57 @@ import {
   DECISIONS,
   decisionOption,
   formatDecisionTime,
-  getDecision,
   isDecisionCurrent,
   NOTE_MAX_LENGTH,
   retestAvailableAt,
   saveDecision,
   type DecisionId,
+  type SupervisorDecision,
 } from "../lib/decisions"
 import { formatCompletedTime } from "../lib/results"
 import ScoreScale from "./ScoreScale"
 
 export default function ManageModal({
   evaluation,
-  supervisorId,
+  current: initialCurrent,
   onClose,
 }: {
   evaluation: Evaluation
-  /** Ficha del supervisor autenticado (queda registrada con la decisión) */
-  supervisorId: string
+  /** Última decisión registrada para este trabajador (null si no hay) */
+  current: SupervisorDecision | null
   onClose: () => void
 }) {
   // Decisión vigente del caso (la que ve el trabajador): solo referencia. El formulario
   // parte vacío y se limpia al notificar, para que cada medida lleve su propio comentario.
-  const [current, setCurrent] = useState(() => getDecision(evaluation.id))
+  const [current, setCurrent] = useState(initialCurrent)
   const [decision, setDecision] = useState<DecisionId | null>(null)
   const [notes, setNotes] = useState("")
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const m = STATUS_META[evaluation.status]
   // Desglose real si la ficha rindió en la app; si no, el de los datos de ejemplo
   const breakdown = useMemo(() => evaluation.breakdown ?? buildBreakdown(evaluation), [evaluation])
   const currentIsActive = current !== null && isDecisionCurrent(current, evaluation.completedAt)
   const isCritical = evaluation.status === "no"
 
-  function confirm() {
-    if (!decision) return
-    const record = saveDecision({
-      fichaId: evaluation.id,
-      decision,
-      note: notes,
-      decidedBy: supervisorId || null,
-      score: evaluation.score,
-    })
-    setCurrent(record)
-    setDecision(null)
-    setNotes("")
-    setSaved(true)
-    setTimeout(onClose, 1500)
+  async function confirm() {
+    if (!decision || saving) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      // El servidor registra autor, hora y resultado de referencia
+      const record = await saveDecision({ workerId: evaluation.workerId, decision, note: notes })
+      setCurrent(record)
+      setDecision(null)
+      setNotes("")
+      setSaved(true)
+      setTimeout(onClose, 1500)
+    } catch (err) {
+      setSaveError((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -190,6 +195,12 @@ export default function ManageModal({
           </section>
         </div>
 
+        {saveError && (
+          <p role="alert" className="border-t border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-5 py-3 text-sm text-[color:var(--color-mist)]">
+            No se pudo registrar la medida: {saveError}
+          </p>
+        )}
+
         {/* Footer */}
         <div className="flex items-center gap-3 border-t border-[color:var(--color-slate-line)] bg-[color:var(--color-ink)]/40 p-5">
           <button
@@ -199,11 +210,11 @@ export default function ManageModal({
             Cancelar
           </button>
           <button
-            onClick={confirm}
-            disabled={!decision || saved}
+            onClick={() => void confirm()}
+            disabled={!decision || saved || saving}
             className="h-14 flex-[1.6] rounded-xl bg-[color:var(--color-semi)] font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[color:var(--color-steel-2)] disabled:text-[color:var(--color-fog)]"
           >
-            {saved ? "✓ Medida registrada y notificada" : "Confirmar y registrar medida"}
+            {saved ? "✓ Medida registrada y notificada" : saving ? "Registrando…" : "Confirmar y registrar medida"}
           </button>
         </div>
       </div>

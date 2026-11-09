@@ -8,37 +8,86 @@ import WorkerShell from "./components/WorkerShell"
 import SupervisorMenu from "./components/SupervisorMenu"
 import PassValidator from "./components/PassValidator"
 import SupervisorDecisionNotice from "./components/SupervisorDecisionNotice"
+import { signOut, type WorkerProfile } from "./lib/auth"
+import { semiBlockUntil } from "./lib/block"
 import type { BatteryResult } from "./lib/data"
-import { clearBlock, getActiveBlock } from "./lib/block"
-import { getPendingDecisionForWorker, type SupervisorDecision } from "./lib/decisions"
-import { recordResult } from "./lib/results"
+import { fetchPendingDecisionForWorker, type SupervisorDecision } from "./lib/decisions"
+import { fetchLatestResult, recordResult } from "./lib/results"
 
-type WorkerView = "login" | "decision" | "dashboard" | "test" | "results"
+type WorkerView = "login" | "decision" | "dashboard" | "test" | "saving" | "results"
 type Mode = "worker" | "supervisor"
 
 export default function App() {
   const [mode, setMode] = useState<Mode>("worker")
   const [view, setView] = useState<WorkerView>("login")
   const [supView, setSupView] = useState<"menu" | "dashboard" | "validate">("menu")
-  const [fichaId, setFichaId] = useState("")
-  const [staffId, setStaffId] = useState("")
+  const [profile, setProfile] = useState<WorkerProfile | null>(null)
   const [result, setResult] = useState<BatteryResult | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [decision, setDecision] = useState<SupervisorDecision | null>(null)
+
+  // Cierra la sesión de Supabase y vuelve al login (trabajador o supervisor)
+  async function logout() {
+    await signOut()
+    setProfile(null)
+    setResult(null)
+    setDecision(null)
+    setSaveError(null)
+    setMode("worker")
+    setSupView("menu")
+    setView("login")
+  }
+
+  // Tras validar Ficha ID + PIN: el rol y el estado del caso vienen del servidor
+  async function handleLogin(p: WorkerProfile) {
+    setProfile(p)
+    if (p.role === "supervisor") {
+      setMode("supervisor")
+      return
+    }
+    const latest = await fetchLatestResult(p.id)
+    // Decisión del supervisor: se muestra antes de iniciar o retomar la evaluación
+    const pending = await fetchPendingDecisionForWorker(p.id, latest?.completedAt)
+    if (pending) {
+      setDecision(pending)
+      setView("decision")
+      return
+    }
+    // SEMI APTO reciente: retoma la pantalla de resultado con el descanso restante
+    if (latest?.breakdown && semiBlockUntil(latest)) {
+      setResult({ fichaId: p.fichaId, score: latest.score, z: 0, breakdown: latest.breakdown, completedAt: latest.completedAt })
+      setSaveError(null)
+      setView("results")
+      return
+    }
+    setView("dashboard")
+  }
+
+  async function handleComplete(r: BatteryResult) {
+    if (!profile) return
+    setView("saving")
+    try {
+      // El servidor fija la hora y aplica las reglas; el panel del supervisor lo recibe en tiempo real
+      const saved = await recordResult(profile.id, r)
+      // Puntaje y hora oficiales: los recalcula el servidor a partir del desglose
+      setResult({ ...r, score: saved.score, completedAt: saved.completedAt })
+      setSaveError(null)
+    } catch (err) {
+      setResult(r)
+      setSaveError((err as Error).message)
+    }
+    setView("results")
+  }
 
   // El área de supervisión solo es accesible autenticándose con una ficha de rol supervisor
   if (mode === "supervisor") {
-    const logout = () => {
-      setMode("worker")
-      setView("login")
-      setSupView("menu")
-    }
-    if (supView === "dashboard") return <SupervisorDashboard supervisorId={staffId} onBack={() => setSupView("menu")} />
+    if (supView === "dashboard") return <SupervisorDashboard onBack={() => setSupView("menu")} />
     if (supView === "validate") return <PassValidator onBack={() => setSupView("menu")} />
     return (
       <SupervisorMenu
         onDashboard={() => setSupView("dashboard")}
         onValidate={() => setSupView("validate")}
-        onLogout={logout}
+        onLogout={() => void logout()}
       />
     )
   }
@@ -48,64 +97,26 @@ export default function App() {
   return (
     <div className="relative min-h-screen w-full">
       <WorkerShell mode={isTest ? "test" : "default"}>
-        {view === "login" && (
-          <WorkerLogin
-            onLogin={(id, role) => {
-              if (role === "supervisor") {
-                setStaffId(id)
-                setMode("supervisor")
-                return
-              }
-              setFichaId(id)
-              // Decisión del supervisor: se muestra antes de iniciar o retomar la evaluación
-              const pending = getPendingDecisionForWorker(id)
-              if (pending) {
-                setDecision(pending)
-                setView("decision")
-                return
-              }
-              // Bloqueo vigente: retoma la pantalla de resultado con el contador restante
-              const block = getActiveBlock(id)
-              if (block) {
-                setResult(block.result)
-                setView("results")
-                return
-              }
-              setView("dashboard")
-            }}
-          />
-        )}
-        {view === "decision" && decision && (
+        {view === "login" && <WorkerLogin onLogin={handleLogin} />}
+        {view === "decision" && decision && profile && (
           <SupervisorDecisionNotice
             decision={decision}
-            onStartTest={() => {
-              // Re-test autorizado: el supervisor levanta también el descanso de 5 min
-              clearBlock(fichaId)
-              setView("dashboard")
-            }}
-            onExit={() => setView("login")}
+            fichaId={profile.fichaId}
+            onStartTest={() => setView("dashboard")}
+            onExit={() => void logout()}
           />
         )}
-        {view === "dashboard" && (
-          <WorkerDashboard fichaId={fichaId} onStart={() => setView("test")} onLogout={() => setView("login")} />
+        {view === "dashboard" && profile && (
+          <WorkerDashboard profile={profile} onStart={() => setView("test")} onLogout={() => void logout()} />
         )}
-        {view === "test" && (
-          <CognitiveTest
-            fichaId={fichaId}
-            onComplete={(r) => {
-              // Persiste el resultado (puntaje, estado, hora y desglose): el panel de supervisión lo refleja de inmediato
-              recordResult(r)
-              setResult(r)
-              setView("results")
-            }}
-          />
+        {view === "test" && profile && <CognitiveTest fichaId={profile.fichaId} onComplete={(r) => void handleComplete(r)} />}
+        {view === "saving" && (
+          <div className="grid min-h-screen place-items-center bg-[color:var(--color-ink)]">
+            <p className="font-mono text-sm uppercase tracking-[0.25em] text-[color:var(--color-fog)]">Guardando resultado…</p>
+          </div>
         )}
         {view === "results" && result && (
-          <TestResults
-            result={result}
-            onRetry={() => setView("test")}
-            onDone={() => setView("login")}
-          />
+          <TestResults result={result} saveError={saveError} onRetry={() => setView("test")} onDone={() => void logout()} />
         )}
       </WorkerShell>
     </div>

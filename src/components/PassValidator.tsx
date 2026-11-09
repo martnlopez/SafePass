@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import CameraScanner from "./CameraScanner"
 import SupervisorShell, { MenuCard } from "./SupervisorShell"
-import { EVALUATIONS } from "../lib/data"
 import { formatPassCode, isCompletePassCode, validatePass, type ValidationResult } from "../lib/pass"
 
 // Mismo corte que el resto de la app: < lg = móvil/tablet, >= lg = escritorio.
@@ -66,8 +65,9 @@ function ResultModal({ result, onClose }: { result: ValidationResult; onClose: (
       ? "PASE VÁLIDO - OPERADOR APTO"
       : result.status === "expired"
         ? "PASE EXPIRADO"
-        : "PASE INVÁLIDO"
-  const worker = result.status !== "invalid" ? EVALUATIONS.find((e) => e.id === result.pass.fichaId) : undefined
+        : result.status === "error"
+          ? "NO SE PUDO VERIFICAR"
+          : "PASE INVÁLIDO"
   const fmt = (t: number) => new Date(t).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })
 
   return (
@@ -90,10 +90,18 @@ function ResultModal({ result, onClose }: { result: ValidationResult; onClose: (
           <p className="mt-2 text-sm text-[color:var(--color-fog)]">
             El código no corresponde a ningún pase emitido. No autorices el ingreso.
           </p>
+        ) : result.status === "error" ? (
+          <p className="mt-2 text-sm text-[color:var(--color-fog)]">
+            {result.message} No autorices el ingreso hasta poder verificar el pase.
+          </p>
         ) : (
           <div className="mt-4 space-y-1 rounded-xl bg-[color:var(--color-ink)] p-4 font-mono text-sm text-[color:var(--color-mist)]">
             <p className="text-lg font-800 text-white">{result.pass.fichaId}</p>
-            {worker && <p className="text-[color:var(--color-fog)]">{worker.role} · {worker.company}</p>}
+            <p className="text-[color:var(--color-mist)]">{result.holder.fullName}</p>
+            <p className="text-[color:var(--color-fog)]">
+              {result.holder.position}
+              {result.holder.company ? ` · ${result.holder.company}` : ""}
+            </p>
             <p className="text-[color:var(--color-fog)]">Código {result.pass.code}</p>
             <p className="text-[color:var(--color-fog)]">Emitido {fmt(result.pass.issuedAt)}</p>
             <p className="text-[color:var(--color-fog)]">
@@ -116,6 +124,21 @@ export default function PassValidator({ onBack }: { onBack: () => void }) {
   const mobile = useIsMobile()
   const [method, setMethod] = useState<"qr" | "code" | null>(null)
   const [result, setResult] = useState<ValidationResult | null>(null)
+  const [checking, setChecking] = useState(false)
+  // Evita consultas duplicadas: la cámara puede leer el mismo QR varias veces seguidas
+  const inFlight = useRef(false)
+
+  async function check(input: string) {
+    if (inFlight.current) return
+    inFlight.current = true
+    setChecking(true)
+    try {
+      setResult(await validatePass(input))
+    } finally {
+      inFlight.current = false
+      setChecking(false)
+    }
+  }
 
   // Escritorio: solo código manual. Móvil/tablet: elegir QR o código.
   const active = mobile ? method : "code"
@@ -149,9 +172,16 @@ export default function PassValidator({ onBack }: { onBack: () => void }) {
             />
           </div>
         )}
-        {active === "code" && <CodeForm onSubmit={(c) => setResult(validatePass(c))} />}
+        {active === "code" && <CodeForm onSubmit={(c) => void check(c)} />}
         {/* Con el modal abierto el visor se desmonta (apaga la cámara) y se reactiva al cerrarlo */}
-        {active === "qr" && !result && <CameraScanner onScan={(data) => setResult(validatePass(data))} onCancel={() => setMethod(null)} cancelLabel="Volver" />}
+        {active === "qr" && !result && !checking && (
+          <CameraScanner onScan={(data) => void check(data)} onCancel={() => setMethod(null)} cancelLabel="Volver" />
+        )}
+        {checking && (
+          <p role="status" className="mt-4 text-center font-mono text-xs uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
+            Verificando pase…
+          </p>
+        )}
       </div>
 
       {result && <ResultModal result={result} onClose={() => setResult(null)} />}

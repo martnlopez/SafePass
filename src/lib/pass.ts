@@ -1,8 +1,9 @@
-// Access pass model for the "APTO" result screen. The QR payload and the
-// manual validation code are derived from the same random id, so a
-// supervisor can cross-check one against the other. TTL logic is expressed
-// as absolute timestamps so it maps 1:1 onto a future Backend/DB record
-// (issuedAt/expiresAt columns, id as primary key).
+import { describeError, supabase } from "./supabase"
+
+// Pase de acceso (tabla access_passes en Supabase). Lo emite el servidor con la función
+// issue_access_pass(): genera el código y verifica que el trabajador tenga un resultado
+// APTO vigente o un Pase Excepcional del supervisor. El QR y el código manual apuntan al
+// mismo registro, así el supervisor puede validar cualquiera de los dos.
 
 export interface AccessPass {
   id: string
@@ -10,27 +11,12 @@ export interface AccessPass {
   issuedAt: number
   expiresAt: number
   code: string
+  /** Contenido del QR */
   payload: string
-}
-
-export const PASS_TTL_MS = 12 * 60 * 60 * 1000 // 12h
-
-function randomId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID()
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === "x" ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
 }
 
 export const PASS_CODE_PREFIX = "SP"
 const PASS_CODE_CHARS = 6
-
-function codeFromId(id: string): string {
-  const hex = id.replace(/-/g, "").toUpperCase()
-  return `${PASS_CODE_PREFIX}-${hex.slice(0, PASS_CODE_CHARS)}`
-}
 
 // Auto-formato del código manual (misma lógica que la Ficha ID): al completar el
 // prefijo "SP" se inserta el guion y solo se aceptan los 6 caracteres hex del código.
@@ -50,59 +36,73 @@ export function isCompletePassCode(code: string): boolean {
   return new RegExp(`^${PASS_CODE_PREFIX}-[0-9A-F]{${PASS_CODE_CHARS}}$`).test(code)
 }
 
-export function createAccessPass(fichaId: string): AccessPass {
-  const id = randomId()
-  const issuedAt = Date.now()
-  const expiresAt = issuedAt + PASS_TTL_MS
-  const code = codeFromId(id)
-  const payload = JSON.stringify({ id, fichaId, issuedAt, expiresAt, code })
-  return { id, fichaId, issuedAt, expiresAt, code, payload }
-}
-
-// Registro local de pases emitidos (stand-in del Backend/DB): código -> pase.
-const REGISTRY_KEY = "safepass:passes"
-
-function readRegistry(): Record<string, AccessPass> {
-  try {
-    return JSON.parse(localStorage.getItem(REGISTRY_KEY) ?? "{}")
-  } catch {
-    return {}
+function toPass(p: { id: string; code: string; ficha_id: string; issued_at: string; expires_at: string }): AccessPass {
+  const issuedAt = new Date(p.issued_at).getTime()
+  const expiresAt = new Date(p.expires_at).getTime()
+  return {
+    id: p.id,
+    code: p.code,
+    fichaId: p.ficha_id,
+    issuedAt,
+    expiresAt,
+    payload: JSON.stringify({ id: p.id, fichaId: p.ficha_id, issuedAt, expiresAt, code: p.code }),
   }
 }
 
-export function registerPass(pass: AccessPass) {
-  try {
-    const all = readRegistry()
-    for (const [code, p] of Object.entries(all)) if (isPassExpired(p, Date.now() - PASS_TTL_MS)) delete all[code]
-    all[pass.code] = pass
-    localStorage.setItem(REGISTRY_KEY, JSON.stringify(all))
-  } catch {
-    // sin storage: el pase no será verificable
-  }
+/** Emite (o recupera, si ya existe uno vigente) el pase del trabajador autenticado */
+export async function issueAccessPass(): Promise<AccessPass> {
+  const { data, error } = await supabase.rpc("issue_access_pass")
+  if (error || !data) throw new Error(describeError(error))
+  return toPass(data as { id: string; code: string; ficha_id: string; issued_at: string; expires_at: string })
+}
+
+export interface PassHolder {
+  fullName: string
+  position: string
+  company: string | null
 }
 
 export type ValidationResult =
-  | { status: "valid" | "expired"; pass: AccessPass }
+  | { status: "valid" | "expired"; pass: AccessPass; holder: PassHolder }
   | { status: "invalid" }
+  | { status: "error"; message: string }
 
-// Acepta el código manual (SP-2AAE91 / 2AAE91) o el payload JSON leído desde el QR.
-export function validatePass(input: string): ValidationResult {
+interface PassRow {
+  id: string
+  code: string
+  issued_at: string
+  expires_at: string
+  workers: { ficha_id: string; full_name: string; position: string; company: string | null } | null
+}
+
+/** Supervisor: acepta el código manual (SP-2AAE91 / 2AAE91) o el contenido JSON del QR */
+export async function validatePass(input: string): Promise<ValidationResult> {
   let code = input.trim().toUpperCase()
   let id: string | undefined
   if (code.startsWith("{")) {
     try {
-      const data = JSON.parse(input)
+      const data = JSON.parse(input) as { code?: unknown; id?: unknown }
       code = String(data.code ?? "").toUpperCase()
-      id = data.id
+      id = typeof data.id === "string" ? data.id : undefined
     } catch {
       return { status: "invalid" }
     }
   }
   code = code.replace(/\s/g, "")
-  if (/^[0-9A-F]{6}$/.test(code)) code = `SP-${code}`
-  const pass = readRegistry()[code]
-  if (!pass || (id && pass.id !== id)) return { status: "invalid" }
-  return { status: isPassExpired(pass) ? "expired" : "valid", pass }
+  if (/^[0-9A-F]{6}$/.test(code)) code = `${PASS_CODE_PREFIX}-${code}`
+  if (!isCompletePassCode(code)) return { status: "invalid" }
+
+  const { data, error } = await supabase
+    .from("access_passes")
+    .select("id, code, issued_at, expires_at, workers(ficha_id, full_name, position, company)")
+    .eq("code", code)
+    .maybeSingle<PassRow>()
+  if (error) return { status: "error", message: describeError(error) }
+  if (!data || !data.workers || (id && data.id !== id)) return { status: "invalid" }
+
+  const pass = toPass({ ...data, ficha_id: data.workers.ficha_id })
+  const holder = { fullName: data.workers.full_name, position: data.workers.position, company: data.workers.company }
+  return { status: isPassExpired(pass) ? "expired" : "valid", pass, holder }
 }
 
 export function isPassExpired(pass: AccessPass, now = Date.now()): boolean {
