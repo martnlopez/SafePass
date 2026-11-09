@@ -1,4 +1,7 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import Logo from "./Logo"
+import CameraScanner from "./CameraScanner"
+import { formatFicha, roleForFicha, type Role } from "../lib/data"
 
 const PIN_LENGTH = 6
 
@@ -57,24 +60,64 @@ function NumPad({ pin, onChange }: { pin: string; onChange: (p: string) => void 
   )
 }
 
-export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) => void }) {
-  const [ficha, setFicha] = useState("TRB-0512")
+export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string, role: Role) => void }) {
+  const [ficha, setFicha] = useState("")
   const [pin, setPin] = useState("")
-  const [scanning, setScanning] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanKey, setScanKey] = useState(0)
+  const [scanMsg, setScanMsg] = useState<string | null>(null)
   const [forgot, setForgot] = useState(false)
   const [email, setEmail] = useState("")
   const [toast, setToast] = useState(false)
   const [error, setError] = useState(false)
+  const fichaRef = useRef<HTMLInputElement>(null)
+
+  // Puesto con teclado físico: foco inicial en la ficha (en táctil no, para no abrir el teclado virtual)
+  useEffect(() => {
+    if (window.matchMedia("(pointer: fine)").matches) fichaRef.current?.focus()
+  }, [])
+
+  // Teclado físico global: dígitos/Backspace/Enter alimentan el PIN cuando ningún campo tiene foco.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (forgot || e.ctrlKey || e.metaKey || e.altKey) return
+      const t = e.target as HTMLElement
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return
+      if (/^\d$/.test(e.key)) {
+        setPin((p) => (p.length < PIN_LENGTH ? p + e.key : p))
+      } else if (e.key === "Backspace") {
+        setPin((p) => p.slice(0, -1))
+      } else if (e.key === "Delete" || e.key === "Escape") {
+        setPin("")
+      } else if (e.key === "Enter") {
+        if (t.tagName !== "BUTTON") handleLoginRef.current()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [forgot])
 
   const fichaOk = /^TRB-\d{3,4}$/i.test(ficha.trim())
   const ready = fichaOk && pin.length === PIN_LENGTH
 
-  function scan() {
-    setScanning(true)
-    setTimeout(() => {
-      setFicha("TRB-0512")
-      setScanning(false)
-    }, 1400)
+  // Escaneo de credencial (móvil/tablet; oculto en desktop vía `lg:hidden`):
+  // abre un visor con la cámara en vivo (getUserMedia) y extrae la Ficha ID del QR.
+  function handleScan(data: string) {
+    const m = data.toUpperCase().match(/[A-Z]{3}-?\d{3,4}/)
+    if (m) {
+      setFicha(formatFicha(m[0]))
+      setScanOpen(false)
+      setScanMsg(null)
+    } else {
+      setScanMsg("Credencial no reconocida. Intenta nuevamente.")
+      setScanKey((k) => k + 1)
+    }
+  }
+
+  function closeScan() {
+    setScanOpen(false)
+    setScanMsg(null)
+    fichaRef.current?.focus()
   }
 
   function handleLogin() {
@@ -87,8 +130,11 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
       return
     }
     setError(false)
-    onLogin(ficha.trim().toUpperCase())
+    const id = ficha.trim().toUpperCase()
+    onLogin(id, roleForFicha(id))
   }
+  const handleLoginRef = useRef(handleLogin)
+  handleLoginRef.current = handleLogin
 
   function sendRecovery() {
     if (!email.includes("@")) return
@@ -111,9 +157,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
           {/* Brand */}
           <div>
             <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-xl bg-[color:var(--color-semi)] font-mono text-xl font-800 text-[color:var(--color-ink)]">
-                SP
-              </div>
+              <Logo size="lg" />
               <div className="leading-tight">
                 <p className="text-base font-800 tracking-tight">SafePass</p>
                 <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--color-fog)]">
@@ -170,9 +214,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
 
           {/* Brand — mobile only */}
           <div className="fade-up flex items-center gap-3 lg:hidden">
-            <div className="grid h-11 w-11 place-items-center rounded-lg bg-[color:var(--color-semi)] font-mono text-lg font-800 text-[color:var(--color-ink)]">
-              SP
-            </div>
+            <Logo size="md" />
             <div className="leading-tight">
               <p className="text-base font-800 tracking-tight">SafePass</p>
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
@@ -201,10 +243,25 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
             </span>
             <div className="relative mt-2">
               <input
+                ref={fichaRef}
                 value={ficha}
-                onChange={(e) => setFicha(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  const next = formatFicha(e.target.value, ficha)
+                  setFicha(next)
+                  // Ficha completa: libera el foco para que el teclado físico alimente el PIN
+                  if (/^[A-Z]{3}-\d{4}$/.test(next)) e.target.blur()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    if (ready) handleLogin()
+                    else fichaRef.current?.blur()
+                  }
+                }}
                 placeholder="TRB-0000"
                 inputMode="text"
+                autoCapitalize="characters"
+                maxLength={8}
                 className="w-full rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-4 font-mono text-2xl font-700 tracking-[0.15em] outline-none transition-colors placeholder:text-[color:var(--color-fog)]/40 focus:border-[color:var(--color-semi)]"
               />
               {fichaOk && (
@@ -230,31 +287,28 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="fade-up mt-6 flex items-center gap-4" style={{ animationDelay: "190ms" }}>
+          {/* Divider — solo tiene sentido junto al botón de escaneo (móvil/tablet) */}
+          <div className="fade-up mt-6 flex items-center gap-4 lg:hidden" style={{ animationDelay: "190ms" }}>
             <span className="h-px flex-1 bg-[color:var(--color-slate-line)]" />
             <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">o</span>
             <span className="h-px flex-1 bg-[color:var(--color-slate-line)]" />
           </div>
 
-          {/* QR scan */}
+          {/* QR scan — móvil/tablet únicamente: activa la cámara del dispositivo.
+              Oculto en desktop (sin cámara integrada esperable en un puesto fijo). */}
           <button
-            onClick={scan}
-            disabled={scanning}
-            className="fade-up mt-6 flex h-20 w-full items-center justify-center gap-4 rounded-2xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] transition-colors hover:border-[color:var(--color-semi)] disabled:opacity-70"
+            onClick={() => setScanOpen(true)}
+            className="fade-up mt-6 flex h-20 w-full items-center justify-center gap-4 rounded-2xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] transition-colors hover:border-[color:var(--color-semi)] lg:hidden"
             style={{ animationDelay: "220ms" }}
           >
-            <div className={`relative grid h-12 w-12 place-items-center rounded-lg border-2 border-[color:var(--color-semi)] ${scanning ? "overflow-hidden" : ""}`}>
+            <div className="relative grid h-12 w-12 place-items-center rounded-lg border-2 border-[color:var(--color-semi)]">
               <svg viewBox="0 0 24 24" className="h-6 w-6" fill="var(--color-mist)">
                 <path d="M3 3h6v6H3V3Zm2 2v2h2V5H5Zm10-2h6v6h-6V3Zm2 2v2h2V5h-2ZM3 15h6v6H3v-6Zm2 2v2h2v-2H5Zm12-2h2v2h-2v-2Zm2 2h2v2h-2v-2Zm-2 2h2v2h-2v-2Zm-2-2h2v2h-2v-2Z" />
               </svg>
-              {scanning && (
-                <span className="absolute inset-x-0 top-0 h-0.5 bg-[color:var(--color-apt)] shadow-[0_0_8px_var(--color-apt)]" style={{ animation: "scan 1.2s linear infinite" }} />
-              )}
             </div>
             <div className="text-left leading-tight">
-              <p className="font-700 text-[color:var(--color-mist)]">{scanning ? "Escaneando…" : "Escanear credencial QR"}</p>
-              <p className="font-mono text-[11px] text-[color:var(--color-fog)]">Acerca tu tarjeta al lector</p>
+              <p className="font-700 text-[color:var(--color-mist)]">Escanear credencial</p>
+              <p className="font-mono text-[11px] text-[color:var(--color-fog)]">Toca para activar la cámara</p>
             </div>
           </button>
 
@@ -264,7 +318,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
             className="fade-up mt-8 h-20 w-full rounded-2xl bg-[color:var(--color-semi)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[color:var(--color-steel-2)] disabled:text-[color:var(--color-fog)]"
             style={{ animationDelay: "260ms" }}
           >
-            Iniciar evaluación
+            Ingresar al sistema
           </button>
 
           <button
@@ -276,6 +330,29 @@ export default function WorkerLogin({ onLogin }: { onLogin: (fichaId: string) =>
           </button>
         </div>
       </div>
+
+      {/* Visor de cámara para escanear credencial (se desmonta al cerrar → track.stop()) */}
+      {scanOpen && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/80 p-6 backdrop-blur-sm">
+          <div className="scale-in w-full max-w-sm rounded-2xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] p-5">
+            <h2 className="text-lg font-800 tracking-tight">Escanear credencial</h2>
+            <p className="mb-4 mt-1 text-sm text-[color:var(--color-fog)]">
+              Apunta la cámara al QR de tu credencial.
+            </p>
+            {scanMsg && (
+              <p className="mb-3 font-mono text-xs font-700 uppercase tracking-wider text-[color:var(--color-no)]">
+                {scanMsg}
+              </p>
+            )}
+            <CameraScanner
+              key={scanKey}
+              onScan={handleScan}
+              onCancel={closeScan}
+              cancelLabel="Ingresar ficha manualmente"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Forgot modal */}
       {forgot && (

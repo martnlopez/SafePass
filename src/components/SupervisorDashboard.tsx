@@ -1,38 +1,54 @@
 import { useMemo, useState } from "react"
-import { EVALUATIONS, STATUS_META, type Evaluation, type Status } from "../lib/data"
+import { STATUS_META, type Evaluation, type Status } from "../lib/data"
+import { isDecisionCurrent, useDecisions } from "../lib/decisions"
+import { useEvaluations } from "../lib/results"
+import DecisionTag from "./DecisionTag"
 import StatusBadge from "./StatusBadge"
 import ManageModal from "./ManageModal"
+import Logo from "./Logo"
 
 type StatusFilter = "todos" | Status
 type ShiftFilter = "todos" | "Día" | "Noche"
 
-export default function SupervisorDashboard({ onExit }: { onExit: () => void }) {
+export default function SupervisorDashboard({ supervisorId, onBack }: { supervisorId: string; onBack: () => void }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos")
   const [shiftFilter, setShiftFilter] = useState<ShiftFilter>("todos")
   const [company, setCompany] = useState<string>("todas")
   const [managing, setManaging] = useState<Evaluation | null>(null)
+  // Último resultado de cada ficha: se actualiza en cuanto un trabajador termina su evaluación
+  const evaluations = useEvaluations()
+  const fichaIds = useMemo(() => evaluations.map((e) => e.id), [evaluations])
+  // Decisiones por ficha (se actualizan al guardar aquí o cuando se registra un NO APTO)
+  const decisionMap = useDecisions(fichaIds)
+  const decisionFor = (e: Evaluation) => {
+    const d = decisionMap[e.id]
+    return d && isDecisionCurrent(d, e.completedAt) ? d : null
+  }
 
   const companies = useMemo(
-    () => ["todas", ...Array.from(new Set(EVALUATIONS.map((e) => e.company)))],
-    [],
+    () => ["todas", ...Array.from(new Set(evaluations.map((e) => e.company)))],
+    [evaluations],
   )
 
-  const filtered = EVALUATIONS.filter(
+  const filtered = evaluations.filter(
     (e) =>
       (statusFilter === "todos" || e.status === statusFilter) &&
       (shiftFilter === "todos" || e.shift === shiftFilter) &&
       (company === "todas" || e.company === company),
   )
 
-  const total = EVALUATIONS.length
-  const aptos = EVALUATIONS.filter((e) => e.status === "apto").length
-  const semi = EVALUATIONS.filter((e) => e.status === "semi").length
-  const noAptos = EVALUATIONS.filter((e) => e.status === "no")
+  // Métricas del turno recalculadas con el último resultado de cada ficha
+  const total = evaluations.length
+  const aptos = evaluations.filter((e) => e.status === "apto").length
+  const semi = evaluations.filter((e) => e.status === "semi").length
+  const noAptos = evaluations.filter((e) => e.status === "no")
+  const liveCount = evaluations.filter((e) => e.live).length
+  const pct = (n: number) => (total ? `${Math.round((n / total) * 100)}%` : "—")
 
   const kpis = [
     { k: "Evaluados hoy", v: total, sub: "trabajadores", tone: "text-[color:var(--color-mist)]" },
-    { k: "Aptos turno", v: `${Math.round((aptos / total) * 100)}%`, sub: `${aptos} personas`, tone: "text-[color:var(--color-apt)]" },
-    { k: "En reintento", v: `${Math.round((semi / total) * 100)}%`, sub: `${semi} demora / semi apto`, tone: "text-[color:var(--color-semi)]" },
+    { k: "Aptos turno", v: pct(aptos), sub: `${aptos} personas`, tone: "text-[color:var(--color-apt)]" },
+    { k: "En reintento", v: pct(semi), sub: `${semi} demora / semi apto`, tone: "text-[color:var(--color-semi)]" },
     { k: "Alertas / no aptos", v: noAptos.length, sub: "requieren acción", tone: "text-[color:var(--color-no)]" },
   ]
 
@@ -42,9 +58,7 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
       <header className="sticky top-0 z-10 border-b border-[color:var(--color-slate-line)] bg-[color:var(--color-ink)]/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4 lg:px-10">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-[color:var(--color-semi)] font-mono text-sm font-800 text-[color:var(--color-ink)]">
-              SP
-            </div>
+            <Logo size="sm" />
             <div className="leading-tight">
               <p className="text-sm font-800 tracking-tight">SafePass · Control de Aptitud · Faena</p>
               <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[color:var(--color-fog)]">
@@ -60,10 +74,10 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
               </span>
             </div>
             <button
-              onClick={onExit}
+              onClick={onBack}
               className="rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-2 font-mono text-xs uppercase tracking-wider text-[color:var(--color-mist)] transition-colors hover:border-[color:var(--color-fog)]"
             >
-              ← Vista trabajador
+              ← Menú
             </button>
           </div>
         </div>
@@ -125,8 +139,12 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
                     <span>{e.role}</span>
                     <span>Turno {e.shift}</span>
                   </div>
+                  <DecisionTag decision={decisionFor(e)} className="mt-3" />
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="font-mono text-2xl font-800 text-[color:var(--color-no)]">{e.score}</span>
+                    <span className="font-mono text-2xl font-800 text-[color:var(--color-no)]">
+                      {e.score}
+                      <span className="ml-1 text-xs font-700 text-[color:var(--color-fog)]">/ 100</span>
+                    </span>
                     <button
                       onClick={() => setManaging(e)}
                       className="rounded-lg bg-[color:var(--color-no)] px-3 py-1.5 font-mono text-[11px] font-700 uppercase tracking-wider text-white transition-colors hover:bg-[color:var(--color-no-dim)]"
@@ -211,8 +229,21 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={e.status} />
+                          <DecisionTag decision={decisionFor(e)} className="mt-1.5" />
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-[color:var(--color-fog)]">{e.time}</td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          {e.live && e.completedAt ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-[color:var(--color-mist)]"
+                              title={`Evaluación registrada ${new Date(e.completedAt).toLocaleString("es-CL")}`}
+                            >
+                              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--color-apt)]" />
+                              {e.time}
+                            </span>
+                          ) : (
+                            <span className="text-[color:var(--color-fog)]">{e.time}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => setManaging(e)}
@@ -236,12 +267,13 @@ export default function SupervisorDashboard({ onExit }: { onExit: () => void }) 
             </div>
             <p className="mt-3 font-mono text-[11px] text-[color:var(--color-fog)]">
               Mostrando {filtered.length} de {total} evaluaciones
+              {liveCount > 0 && ` · ${liveCount} con resultado registrado en la app (●)`}
             </p>
           </section>
         </div>
       </main>
 
-      {managing && <ManageModal evaluation={managing} onClose={() => setManaging(null)} />}
+      {managing && <ManageModal evaluation={managing} supervisorId={supervisorId} onClose={() => setManaging(null)} />}
     </div>
   )
 }

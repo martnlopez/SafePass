@@ -2,11 +2,23 @@ export type Status = "apto" | "semi" | "no"
 
 export const STATUS_META: Record<
   Status,
-  { label: string; short: string; text: string; bg: string; border: string; dot: string; hex: string }
+  {
+    label: string
+    short: string
+    range: string // tramo visible de la escala 0-100
+    band: string // lectura del tramo para el trabajador
+    text: string
+    bg: string
+    border: string
+    dot: string
+    hex: string
+  }
 > = {
   apto: {
     label: "APTO PARA INGRESO A FAENA",
     short: "Apto",
+    range: "80 – 100 pts",
+    band: "Rango óptimo",
     text: "text-[color:var(--color-apt)]",
     bg: "bg-[color:var(--color-apt)]/12",
     border: "border-[color:var(--color-apt)]/40",
@@ -16,6 +28,8 @@ export const STATUS_META: Record<
   semi: {
     label: "SEMI APTO / RETOMAR TEST",
     short: "Semi apto",
+    range: "60 – 79 pts",
+    band: "Atención preventiva",
     text: "text-[color:var(--color-semi)]",
     bg: "bg-[color:var(--color-semi)]/12",
     border: "border-[color:var(--color-semi)]/40",
@@ -25,6 +39,8 @@ export const STATUS_META: Record<
   no: {
     label: "NO APTO PARA INGRESAR EN ESTE TURNO",
     short: "No apto",
+    range: "0 – 59 pts",
+    band: "Restricción de acceso",
     text: "text-[color:var(--color-no)]",
     bg: "bg-[color:var(--color-no)]/12",
     border: "border-[color:var(--color-no)]/40",
@@ -32,6 +48,14 @@ export const STATUS_META: Record<
     hex: "#ef4444",
   },
 }
+
+// Escala continua visible en el tótem (0-100 pts). El z-score se mantiene solo
+// como métrica interna / de supervisión.
+export const SCORE_BANDS: { status: Status; from: number; to: number }[] = [
+  { status: "no", from: 0, to: 59 },
+  { status: "semi", from: 60, to: 79 },
+  { status: "apto", from: 80, to: 100 },
+]
 
 export function scoreToStatus(score: number): Status {
   if (score >= 80) return "apto"
@@ -49,6 +73,11 @@ export interface Evaluation {
   score: number
   time: string
   status: Status
+  /** Resultados reales (lib/results.ts): momento exacto de finalización y desglose por prueba */
+  completedAt?: number
+  breakdown?: TestFault[]
+  /** true = la fila refleja una evaluación rendida en la app (no el dato de ejemplo) */
+  live?: boolean
 }
 
 const rows: Omit<Evaluation, "status">[] = [
@@ -65,6 +94,29 @@ const rows: Omit<Evaluation, "status">[] = [
   { id: "TRB-0704", name: "Josefa Miranda", rut: "21.008.774-5", role: "Laboratorista", company: "Minera Andina", shift: "Día", score: 89, time: "06:49" },
   { id: "TRB-0356", name: "Cristián Álvarez", rut: "15.882.640-2", role: "Mantenedor Mecánico", company: "SGS Contratistas", shift: "Noche", score: 78, time: "06:52" },
 ]
+
+export type Role = "worker" | "supervisor"
+
+// Credenciales de prueba (PIN demo común: 123456). Cualquier otra ficha entra como trabajador.
+export const TEST_USERS: Record<string, { role: Role; label: string }> = {
+  "TRB-0512": { role: "worker", label: "Operador" },
+  "TRB-0513": { role: "supervisor", label: "Supervisor" },
+}
+
+export function roleForFicha(fichaId: string): Role {
+  return TEST_USERS[fichaId.toUpperCase()]?.role ?? "worker"
+}
+
+// Auto-formato de Ficha ID: 3 letras + "-" + hasta 4 dígitos (ej. TRB-0512).
+export function formatFicha(raw: string, previous = ""): string {
+  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, "")
+  const letters = cleaned.match(/^[A-Z]{0,3}/)![0]
+  const digits = cleaned.slice(letters.length).replace(/\D/g, "").slice(0, 4)
+  if (letters.length < 3) return letters
+  const deleting = raw.length < previous.length
+  if (!digits) return deleting ? letters : `${letters}-`
+  return `${letters}-${digits}`
+}
 
 export const EVALUATIONS: Evaluation[] = rows.map((r) => ({ ...r, status: scoreToStatus(r.score) }))
 
@@ -83,7 +135,7 @@ export type TestKey = (typeof TEST_META)[number]["key"]
 export interface BatteryResult {
   fichaId: string
   score: number // 0-100 global
-  z: number // z-score vs baseline
+  z: number // z-score vs baseline (uso interno; no se muestra al trabajador)
   breakdown: { key: TestKey; name: string; score: number; detail: string }[]
 }
 
@@ -109,6 +161,26 @@ function hashId(id: string): number {
   return h >>> 0
 }
 
+// Umbral de referencia de cada prueba (se muestra junto al resultado en el panel)
+export const TEST_THRESHOLDS: Record<TestKey, string> = {
+  figuras: "mín. 80%",
+  pvt: "máx. 500ms",
+  gonogo: "máx. 15%",
+  memoria: "mín. 4",
+  tracking: "mín. 3",
+}
+
+/** Desglose real de una batería rendida → formato de ficha técnica del panel */
+export function breakdownFromResult(breakdown: BatteryResult["breakdown"]): TestFault[] {
+  return breakdown.map((b) => ({
+    test: b.name,
+    score: b.score,
+    value: b.detail,
+    threshold: TEST_THRESHOLDS[b.key],
+    severity: scoreToStatus(b.score),
+  }))
+}
+
 // Deterministic per-worker breakdown of the last 5 tests, coherent with the
 // worker's global score. Same worker always yields the same figures.
 export function buildBreakdown(ev: Evaluation): TestFault[] {
@@ -131,10 +203,10 @@ export function buildBreakdown(ev: Evaluation): TestFault[] {
   const series = Math.max(0, Math.round(tracking / 25))
 
   return [
-    { test: "Selección de Figuras", score: figuras, value: `Precisión ${precision}%`, threshold: "mín. 80%", severity: scoreToStatus(figuras) },
-    { test: "PVT Táctil", score: pvt, value: `TR ${trMs}ms · ${lapsos} lapsos`, threshold: "máx. 500ms", severity: scoreToStatus(pvt) },
-    { test: "Go / No-Go", score: gonogo, value: `Falsos + ${fp}%`, threshold: "máx. 15%", severity: scoreToStatus(gonogo) },
-    { test: "Memoria de Trabajo", score: memoria, value: `Span ${span} casillas`, threshold: "mín. 4", severity: scoreToStatus(memoria) },
-    { test: "Tracking Numérico", score: tracking, value: `${series} series`, threshold: "mín. 3", severity: scoreToStatus(tracking) },
+    { test: "Selección de Figuras", score: figuras, value: `Precisión ${precision}%`, threshold: TEST_THRESHOLDS.figuras, severity: scoreToStatus(figuras) },
+    { test: "PVT Táctil", score: pvt, value: `TR ${trMs}ms · ${lapsos} lapsos`, threshold: TEST_THRESHOLDS.pvt, severity: scoreToStatus(pvt) },
+    { test: "Go / No-Go", score: gonogo, value: `Falsos + ${fp}%`, threshold: TEST_THRESHOLDS.gonogo, severity: scoreToStatus(gonogo) },
+    { test: "Memoria de Trabajo", score: memoria, value: `Span ${span} casillas`, threshold: TEST_THRESHOLDS.memoria, severity: scoreToStatus(memoria) },
+    { test: "Tracking Numérico", score: tracking, value: `${series} series`, threshold: TEST_THRESHOLDS.tracking, severity: scoreToStatus(tracking) },
   ]
 }

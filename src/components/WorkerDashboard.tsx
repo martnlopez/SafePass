@@ -1,6 +1,19 @@
+import { useMemo } from "react"
 import { EVALUATIONS } from "../lib/data"
+import { getHistory } from "../lib/results"
 
-export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string; onStart: () => void }) {
+const LOGOUT_BTN =
+  "rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-2 font-mono text-xs uppercase tracking-wider text-[color:var(--color-mist)] transition-colors hover:border-[color:var(--color-fog)] hover:text-white"
+
+export default function WorkerDashboard({
+  fichaId,
+  onStart,
+  onLogout,
+}: {
+  fichaId: string
+  onStart: () => void
+  onLogout: () => void
+}) {
   const today = new Date().toLocaleDateString("es-CL", {
     weekday: "long",
     day: "2-digit",
@@ -9,13 +22,20 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
   })
 
   const worker = EVALUATIONS.find((evaluation) => evaluation.id === fichaId)
-  const score = worker?.score ?? null
+  // Mismo registro que usa el panel de supervisión (lib/results.ts); sin evaluaciones propias, el dato de ejemplo
+  const history = useMemo(() => getHistory(fichaId), [fichaId])
+  const scores = history.length ? history.map((r) => r.score) : worker ? [worker.score] : []
+  const last = scores.length ? scores[scores.length - 1]! : null
+  const average = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+  // Racha: evaluaciones APTO consecutivas, desde la más reciente
+  let streak = 0
+  for (let i = history.length - 1; i >= 0 && history[i]!.status === "apto"; i--) streak++
 
   const METRICS = [
-    { k: "Racha",          v: "Sin historial" },
-    { k: "Último puntaje", v: score === null ? "—" : `${score} / 100` },
-    { k: "Evaluaciones",   v: worker ? "1 actual" : "Sin registro" },
-    { k: "Promedio",       v: score === null ? "—" : `${score} / 100` },
+    { k: "Racha",          v: history.length ? `${streak} apto${streak === 1 ? "" : "s"}` : "Sin historial" },
+    { k: "Último puntaje", v: last === null ? "—" : `${last} / 100` },
+    { k: "Evaluaciones",   v: history.length ? `${history.length} registrada${history.length === 1 ? "" : "s"}` : worker ? "1 actual" : "Sin registro" },
+    { k: "Promedio",       v: average === null ? "—" : `${average} / 100` },
   ]
 
   const TESTS = [
@@ -45,11 +65,16 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
               {worker ? `${worker.role} · ${worker.company}` : "Trabajador sin registro"}
             </p>
           </div>
-          <div className="rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-3 py-2 text-center">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-[color:var(--color-fog)]">Turno</p>
-            <p className="font-mono text-sm font-700 text-[color:var(--color-semi)]">
-              {worker?.shift?.toUpperCase() ?? "SIN TURNO"}
-            </p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-3 py-2 text-center">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-[color:var(--color-fog)]">Turno</p>
+              <p className="font-mono text-sm font-700 text-[color:var(--color-semi)]">
+                {worker?.shift?.toUpperCase() ?? "SIN TURNO"}
+              </p>
+            </div>
+            <button onClick={onLogout} className={LOGOUT_BTN}>
+              Cerrar sesión
+            </button>
           </div>
         </header>
         <div className="fade-up mt-6 grid grid-cols-2 gap-3" style={{ animationDelay: "60ms" }}>
@@ -106,10 +131,15 @@ export default function WorkerDashboard({ fichaId, onStart }: { fichaId: string;
             </div>
           </div>
           {/* Shift Badge · Accent #FFAE00 sobre Surface #161F30 — pill de estado no interactiva */}
-          <div className="rounded-full border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-5 py-2 shadow-lg shadow-black/30">
-            <p className="font-mono text-xs font-700 uppercase tracking-[0.25em] text-[color:var(--color-semi)]">
-              Turno {worker?.shift ?? "sin asignar"}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="rounded-full border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-5 py-2 shadow-lg shadow-black/30">
+              <p className="font-mono text-xs font-700 uppercase tracking-[0.25em] text-[color:var(--color-semi)]">
+                Turno {worker?.shift ?? "sin asignar"}
+              </p>
+            </div>
+            <button onClick={onLogout} className={LOGOUT_BTN}>
+              Cerrar sesión
+            </button>
           </div>
         </header>
 

@@ -1,20 +1,17 @@
 import { useEffect, useState } from "react"
+import { useCountdown } from "../lib/useCountdown"
 import { scoreToStatus, STATUS_META, type BatteryResult } from "../lib/data"
+import { startBlock } from "../lib/block"
+import { registerPendingReview } from "../lib/decisions"
+import { createAccessPass, registerPass, type AccessPass } from "../lib/pass"
+import AccessPassCard from "./AccessPassCard"
+import ScoreScale from "./ScoreScale"
 
-// Bloqueo de reintento: cuenta regresiva de 5 min (300 s) para estados
-// SEMI APTO / NO APTO. Impide reevaluación inmediata frente al tótem.
-function RetryButton({ onRetry }: { onRetry: () => void }) {
-  const WAIT = 300
-  const [left, setLeft] = useState(WAIT)
-
-  useEffect(() => {
-    const id = setInterval(() => setLeft((s) => (s <= 1 ? 0 : s - 1)), 1000)
-    return () => clearInterval(id)
-  }, [])
-
+// Bloqueo de reintento: cuenta regresiva de 5 min (300 s) solo para SEMI APTO
+// (descanso preventivo). Impide volver a rendir de inmediato.
+function RetryButton({ blockUntil, onRetry }: { blockUntil: number; onRetry: () => void }) {
+  const { left, clock } = useCountdown(blockUntil)
   const ready = left <= 0
-  const mm = String(Math.floor(left / 60)).padStart(2, "0")
-  const ss = String(left % 60).padStart(2, "0")
 
   return (
     <button
@@ -27,26 +24,23 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
           : "h-16 w-full cursor-not-allowed rounded-xl bg-[color:var(--color-steel)] font-mono text-base font-700 uppercase tracking-wide text-[color:var(--color-fog)] opacity-50"
       }
     >
-      {ready ? "Reintentar evaluación" : `Esperar para reintentar (${mm}:${ss} min)`}
+      {ready ? "Reintentar evaluación" : `Esperar para reintentar (${clock} min)`}
     </button>
   )
 }
 
-function QrGlyph({ color }: { color: string }) {
-  const cells = 11
-  const seed = [
-    0x7f, 0x41, 0x5d, 0x5d, 0x41, 0x7f, 0x2a, 0x6b, 0x1c, 0x3e, 0x55, 0x22, 0x49, 0x6e, 0x13, 0x7c,
-    0x2d, 0x58, 0x64, 0x0f, 0x76,
-  ]
+function RestCountdown({ blockUntil }: { blockUntil: number }) {
+  const { left, clock } = useCountdown(blockUntil)
   return (
-    <div
-      className="grid gap-[3px]"
-      style={{ gridTemplateColumns: `repeat(${cells}, 1fr)`, width: 168, height: 168 }}
-    >
-      {Array.from({ length: cells * cells }).map((_, i) => {
-        const on = (seed[i % seed.length] >> i % 7) & 1
-        return <div key={i} className="rounded-[2px]" style={{ background: on ? color : "transparent" }} />
-      })}
+    <div className="mt-5 flex items-center gap-3 rounded-xl border border-[color:var(--color-semi)]/30 bg-[color:var(--color-semi)]/10 px-4 py-3">
+      <span className="font-mono text-2xl font-800 tabular-nums text-[color:var(--color-semi)]">{clock}</span>
+      <span className="font-mono text-[11px] uppercase leading-tight tracking-wider text-[color:var(--color-fog)]">
+        {left > 0 ? (
+          <>Descanso preventivo<br />antes del re-test</>
+        ) : (
+          <>Descanso cumplido<br />ya puedes reintentar</>
+        )}
+      </span>
     </div>
   )
 }
@@ -60,12 +54,18 @@ export default function TestResults({
   onRetry: () => void
   onDone: () => void
 }) {
-  const { score, z, breakdown, fichaId } = result
+  const { score, breakdown, fichaId } = result
   const status = scoreToStatus(score)
   const m = STATUS_META[status]
-  const now = new Date().toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })
+  const [pass, setPass] = useState<AccessPass | null>(null)
+  // Temporizador solo en SEMI APTO; NO APTO queda a criterio del supervisor
+  const [blockUntil] = useState(() => (status === "semi" ? startBlock(fichaId, result) : 0))
+  // NO APTO: el caso queda en "Revisión pendiente" hasta que el supervisor registre su decisión
+  useEffect(() => {
+    if (status === "no") registerPendingReview(result)
+  }, [status, result])
+  const now =new Date().toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })
 
-  const zPct = Math.max(0, Math.min(100, ((z + 3) / 6) * 100))
   const stateLabel =
     status === "apto" ? "APTO" : status === "semi" ? "ZONA CRÍTICA · RE-TEST" : "NO APTO"
 
@@ -96,32 +96,8 @@ export default function TestResults({
             </div>
           </div>
 
-          {/* Z-Score gauge */}
-          <div className="fade-up mt-7 rounded-2xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] p-5">
-            <div className="flex items-baseline justify-between">
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
-                Z-Score (vs. baseline)
-              </p>
-              <p className={`font-mono text-2xl font-800 tabular-nums ${m.text}`}>
-                {z > 0 ? "+" : ""}{z.toFixed(1)} σ
-              </p>
-            </div>
-            <div className="relative mt-4 h-2 rounded-full bg-[color:var(--color-ink)]">
-              <div
-                className="absolute inset-y-0 rounded-full bg-[color:var(--color-apt)]/20"
-                style={{ left: `${((-1.5 + 3) / 6) * 100}%`, right: 0 }}
-              />
-              <div
-                className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 -translate-x-1/2 rounded-full border-2 border-[color:var(--color-ink)] ${m.dot}`}
-                style={{ left: `${zPct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between font-mono text-[10px] text-[color:var(--color-fog)]">
-              <span>-3σ</span>
-              <span>umbral -1.5σ</span>
-              <span>+3σ</span>
-            </div>
-          </div>
+          {/* Escala continua 0-100 */}
+          <ScoreScale score={score} />
 
           {/* Status banner */}
           <div className={`fade-up mt-5 rounded-2xl border p-5 text-center ${m.border} ${m.bg}`}>
@@ -132,30 +108,50 @@ export default function TestResults({
             <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-[color:var(--color-fog)]">
               {m.label}
             </p>
+            <p className={`mt-2 font-mono text-[11px] font-700 uppercase tracking-wider ${m.text}`}>
+              {m.range} · {m.band}
+            </p>
           </div>
 
           {/* Action button */}
           <div className="fade-up mt-6" style={{ animationDelay: "120ms" }}>
             {status === "apto" && (
               <button
-                onClick={onDone}
+                onClick={
+                  pass
+                    ? onDone
+                    : () => {
+                        const p = createAccessPass(fichaId)
+                        registerPass(p)
+                        setPass(p)
+                      }
+                }
                 className="h-16 w-full rounded-xl bg-[color:var(--color-apt)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-apt-dim)] active:scale-[0.99]"
               >
-                Generar pase / QR de acceso
+                {pass ? "Finalizar y salir" : "Generar pase / QR de acceso"}
               </button>
             )}
-            {/* SEMI/NO APTO: reintento bloqueado 5 min + salida secundaria */}
-            {(status === "semi" || status === "no") && (
+            {/* SEMI APTO: reintento bloqueado 5 min (descanso preventivo) + salida secundaria */}
+            {status === "semi" && (
               <>
-                <RetryButton onRetry={onRetry} />
-                {/* NO APTO ya se notifica en automático → salida solo cierra la sesión y reinicia el tótem */}
+                <RetryButton blockUntil={blockUntil} onRetry={onRetry} />
                 <button
                   onClick={onDone}
                   className="mt-3 h-14 w-full rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel-2)] text-sm font-700 uppercase tracking-wide text-[color:var(--color-mist)] transition-all hover:border-[color:var(--color-no)] hover:text-white active:scale-[0.99]"
                 >
-                  {status === "no" ? "Cerrar y salir" : "Finalizar y notificar a supervisor"}
+                  Finalizar y notificar a supervisor
                 </button>
               </>
+            )}
+            {/* NO APTO: sin temporizador ni reintento propio — el segundo intento o pase
+                lo decide el supervisor desde su panel. Ya se notifica en automático. */}
+            {status === "no" && (
+              <button
+                onClick={onDone}
+                className="h-16 w-full rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel-2)] text-lg font-800 uppercase tracking-wide text-[color:var(--color-mist)] transition-all hover:border-[color:var(--color-no)] hover:text-white active:scale-[0.99]"
+              >
+                Cerrar y salir
+              </button>
             )}
           </div>
         </div>
@@ -194,12 +190,9 @@ export default function TestResults({
                 <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
                   Pase de acceso a faena
                 </p>
-                <div className="mt-4 rounded-xl bg-[color:var(--color-ink)] p-4">
-                  <QrGlyph color={m.hex} />
+                <div className="mt-4">
+                  <AccessPassCard pass={pass} fichaId={fichaId} accentHex={m.hex} />
                 </div>
-                <p className="mt-4 font-mono text-sm font-600 text-[color:var(--color-mist)]">
-                  PASE-{fichaId} · Válido 12 h
-                </p>
               </div>
             )}
             {status === "semi" && (
@@ -208,12 +201,7 @@ export default function TestResults({
                   Tu desempeño está en zona crítica. Descansa, hidrátate y vuelve a rendir la evaluación
                   antes de tu ingreso.
                 </p>
-                <div className="mt-5 flex items-center gap-3 rounded-xl border border-[color:var(--color-semi)]/30 bg-[color:var(--color-semi)]/10 px-4 py-3">
-                  <span className="font-mono text-2xl font-800 text-[color:var(--color-semi)]">05:00</span>
-                  <span className="font-mono text-[11px] uppercase leading-tight tracking-wider text-[color:var(--color-fog)]">
-                    Tiempo mínimo<br />de espera
-                  </span>
-                </div>
+                <RestCountdown blockUntil={blockUntil} />
               </div>
             )}
             {status === "no" && (
@@ -222,7 +210,8 @@ export default function TestResults({
                   Por seguridad, no estás autorizado para ingresar en este turno.
                 </p>
                 <p className="mt-3 text-sm leading-relaxed text-[color:var(--color-fog)]">
-                  Dirígete con tu supervisor de turno.
+                  Dirígete con tu supervisor de turno: la autorización de un segundo intento o de tu pase de
+                  acceso depende de su decisión. Al volver a ingresar tu Ficha ID verás su respuesta.
                 </p>
                 <div className="mt-5 flex items-center gap-3 rounded-xl border border-[color:var(--color-no)]/30 bg-[color:var(--color-no)]/10 px-4 py-3">
                   <span className="alert-pulse h-3 w-3 rounded-full bg-[color:var(--color-no)]" />

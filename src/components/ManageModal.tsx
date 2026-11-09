@@ -1,46 +1,53 @@
 import { useMemo, useState } from "react"
-import { buildBreakdown, scoreToZ, STATUS_META, type Evaluation } from "../lib/data"
-
-const DECISIONS = [
-  {
-    id: "retest",
-    label: "Autorizar Re-test",
-    sub: "Tras 15 min de descanso e hidratación",
-  },
-  {
-    id: "reasignar",
-    label: "Reasignación de Tarea",
-    sub: "Rol de bajo riesgo / taller",
-  },
-  {
-    id: "policlinico",
-    label: "Derivación a Policlínico / Mutual",
-    sub: "Evaluación médica presencial",
-  },
-  {
-    id: "suspender",
-    label: "Restablecimiento / Suspensión de Turno",
-    sub: "Retiro de faena por seguridad",
-  },
-] as const
+import { buildBreakdown, STATUS_META, type Evaluation } from "../lib/data"
+import {
+  DECISIONS,
+  decisionOption,
+  formatDecisionTime,
+  getDecision,
+  isDecisionCurrent,
+  NOTE_MAX_LENGTH,
+  retestAvailableAt,
+  saveDecision,
+  type DecisionId,
+} from "../lib/decisions"
+import { formatCompletedTime } from "../lib/results"
+import ScoreScale from "./ScoreScale"
 
 export default function ManageModal({
   evaluation,
+  supervisorId,
   onClose,
 }: {
   evaluation: Evaluation
+  /** Ficha del supervisor autenticado (queda registrada con la decisión) */
+  supervisorId: string
   onClose: () => void
 }) {
-  const [decision, setDecision] = useState<string | null>(null)
+  // Decisión vigente del caso (la que ve el trabajador): solo referencia. El formulario
+  // parte vacío y se limpia al notificar, para que cada medida lleve su propio comentario.
+  const [current, setCurrent] = useState(() => getDecision(evaluation.id))
+  const [decision, setDecision] = useState<DecisionId | null>(null)
   const [notes, setNotes] = useState("")
   const [saved, setSaved] = useState(false)
   const m = STATUS_META[evaluation.status]
-  const breakdown = useMemo(() => buildBreakdown(evaluation), [evaluation])
-  const z = scoreToZ(evaluation.score)
+  // Desglose real si la ficha rindió en la app; si no, el de los datos de ejemplo
+  const breakdown = useMemo(() => evaluation.breakdown ?? buildBreakdown(evaluation), [evaluation])
+  const currentIsActive = current !== null && isDecisionCurrent(current, evaluation.completedAt)
   const isCritical = evaluation.status === "no"
 
   function confirm() {
     if (!decision) return
+    const record = saveDecision({
+      fichaId: evaluation.id,
+      decision,
+      note: notes,
+      decidedBy: supervisorId || null,
+      score: evaluation.score,
+    })
+    setCurrent(record)
+    setDecision(null)
+    setNotes("")
     setSaved(true)
     setTimeout(onClose, 1500)
   }
@@ -67,23 +74,28 @@ export default function ManageModal({
                 <span className="font-700 text-[color:var(--color-mist)]">{evaluation.id}</span>
                 <span>{evaluation.role}</span>
                 <span>Turno {evaluation.shift}</span>
-                <span>{evaluation.time} hrs</span>
+                <span title={evaluation.completedAt ? new Date(evaluation.completedAt).toLocaleString("es-CL") : undefined}>
+                  {evaluation.completedAt ? formatCompletedTime(evaluation.completedAt, true) : evaluation.time} hrs
+                </span>
               </div>
             </div>
             <div className="text-right">
               <p className={`font-mono text-4xl font-800 tabular-nums ${m.text}`}>{evaluation.score}</p>
               <p className="font-mono text-[10px] uppercase tracking-wider text-[color:var(--color-fog)]">/ 100 pts</p>
-              <p className={`mt-1 font-mono text-xs font-700 ${m.text}`}>
-                Z {z > 0 ? "+" : ""}
-                {z.toFixed(1)} σ
-              </p>
+              <p className={`mt-1 font-mono text-xs font-700 uppercase tracking-wider ${m.text}`}>{m.short}</p>
             </div>
           </div>
         </div>
 
         <div className="overflow-y-auto p-6">
+          {/* Misma escala 0-100 y tramos que ve el trabajador */}
+          <ScoreScale score={evaluation.score} className="" />
+          <p className={`mt-2 text-center font-mono text-[11px] font-700 uppercase tracking-wider ${m.text}`}>
+            {m.range} · {m.band}
+          </p>
+
           {/* Ficha técnica · últimos 5 tests */}
-          <section>
+          <section className="mt-6">
             <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
               Ficha técnica · últimos 5 tests
             </h3>
@@ -111,6 +123,19 @@ export default function ManageModal({
             <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
               Toma de decisiones
             </h3>
+            {current && (
+              <div className="mt-2 rounded-lg border border-[color:var(--color-slate-line)] bg-[color:var(--color-ink)] px-3 py-2 font-mono text-[11px] text-[color:var(--color-fog)]">
+                <p>
+                  {currentIsActive ? "Vigente: " : "Última decisión (anterior a la evaluación más reciente): "}
+                  <span className="font-700 text-[color:var(--color-mist)]">{decisionOption(current.decision).short}</span>
+                  {" · "}
+                  {current.decidedBy ? `por ${current.decidedBy}` : "automática (NO APTO)"} · {formatDecisionTime(current.decidedAt)}
+                  {retestAvailableAt(current) !== null && ` · re-test habilitado desde ${formatDecisionTime(retestAvailableAt(current)!)}`}
+                  {current.seenAt && ` · vista por el trabajador ${formatDecisionTime(current.seenAt)}`}
+                </p>
+                {current.note && <p className="mt-1 normal-case text-[color:var(--color-mist)]">Comentario enviado: “{current.note}”</p>}
+              </div>
+            )}
             <div className="mt-3 space-y-2.5">
               {DECISIONS.map((d) => {
                 const active = decision === d.id
@@ -151,10 +176,17 @@ export default function ManageModal({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
-                placeholder="Registra el contexto de la decisión, síntomas observados o acuerdos con el trabajador…"
+                maxLength={NOTE_MAX_LENGTH}
+                placeholder="Ej.: Autorizado tras pausa de hidratación de 15 minutos."
                 className="mt-2 w-full resize-none rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-ink)] px-4 py-3 text-sm outline-none transition-colors placeholder:text-[color:var(--color-fog)]/40 focus:border-[color:var(--color-semi)]"
               />
             </label>
+            <div className="mt-1.5 flex items-start justify-between gap-4 font-mono text-[11px] text-[color:var(--color-fog)]">
+              <span>El trabajador lo verá junto a la decisión al ingresar con su Ficha ID. No incluyas diagnósticos ni datos médicos.</span>
+              <span className="shrink-0 tabular-nums">
+                {notes.length}/{NOTE_MAX_LENGTH}
+              </span>
+            </div>
           </section>
         </div>
 
@@ -171,7 +203,7 @@ export default function ManageModal({
             disabled={!decision || saved}
             className="h-14 flex-[1.6] rounded-xl bg-[color:var(--color-semi)] font-800 uppercase tracking-wide text-[color:var(--color-ink)] transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[color:var(--color-steel-2)] disabled:text-[color:var(--color-fog)]"
           >
-            {saved ? "✓ Medida registrada" : "Confirmar y registrar medida"}
+            {saved ? "✓ Medida registrada y notificada" : "Confirmar y registrar medida"}
           </button>
         </div>
       </div>

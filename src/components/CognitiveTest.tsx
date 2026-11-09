@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { TEST_META, scoreToZ, type BatteryResult, type TestKey } from "../lib/data"
+import { NODE_SIZE, scatter, type Point } from "../lib/scatter"
+import Logo from "./Logo"
 
 const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min
 
@@ -51,9 +53,7 @@ export default function CognitiveTest({
       <div className="mx-auto w-full max-w-md md:max-w-2xl lg:max-w-6xl">
         <header className="flex items-center justify-between rounded-xl border border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)] px-4 py-3.5 lg:px-6 lg:py-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-[color:var(--color-semi)] font-mono text-sm font-800 text-[color:var(--color-ink)] lg:h-10 lg:w-10">
-              SP
-            </div>
+            <Logo size="sm" />
             <div className="leading-tight">
               {/* Ley 19.628: sesión identificada solo por Ficha ID — nombre/RUT viven fuera de la UI del trabajador */}
               <p className="font-mono text-base font-700 tracking-wide text-white">{fichaId}</p>
@@ -512,7 +512,9 @@ function MemoriaTest({ onDone }: { onDone: DoneFn }) {
       <p className="mt-1 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
         Nivel {level + 1} · {LEVELS[level]} casillas
       </p>
-      <div className="mt-auto mb-auto grid grid-cols-3 gap-3">
+      {/* Grid cuadrado centrado de hasta 580px (se reduce en pantallas pequeñas) */}
+      <div className="mx-auto my-auto grid aspect-square grid-cols-3 gap-4 p-4 md:gap-5 md:p-6"
+        style={{ width: "min(100%, 580px, 62vh)" }}>
         {Array.from({ length: 9 }).map((_, c) => {
           const active = lit === c
           const chosen = mode === "input" && input.includes(c)
@@ -520,7 +522,7 @@ function MemoriaTest({ onDone }: { onDone: DoneFn }) {
             <button
               key={c}
               onClick={() => tap(c)}
-              className={`aspect-square min-h-[80px] rounded-2xl border transition-all duration-150 active:scale-95 ${
+              className={`aspect-square min-h-[72px] rounded-2xl border transition-all duration-150 active:scale-95 ${
                 active
                   ? "border-[color:var(--color-semi)] bg-[color:var(--color-semi)] shadow-[0_0_30px_rgba(245,158,11,0.6)]"
                   : wrong && chosen
@@ -541,25 +543,34 @@ function MemoriaTest({ onDone }: { onDone: DoneFn }) {
 // Test 5 · Tracking Numérico (20s)
 // ---------------------------------------------------------------------------
 
-function scatter(): { x: number; y: number }[] {
-  // 6 non-overlapping positions in a 0-100 grid area
-  const spots: { x: number; y: number }[] = []
-  let guard = 0
-  while (spots.length < 6 && guard < 400) {
-    guard++
-    const p = { x: rand(6, 74), y: rand(6, 78) }
-    if (spots.every((s) => Math.hypot(s.x - p.x, s.y - p.y) > 32)) spots.push(p)
+// Beep breve de fallo (WebAudio); silencioso si el navegador lo bloquea.
+let audioCtx: AudioContext | null = null
+function beepError() {
+  try {
+    audioCtx ??= new AudioContext()
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
+    osc.type = "square"
+    osc.frequency.value = 180
+    gain.gain.value = 0.06
+    osc.connect(gain).connect(audioCtx.destination)
+    osc.start()
+    osc.stop(audioCtx.currentTime + 0.12)
+  } catch {
+    // sin audio disponible
   }
-  while (spots.length < 6) spots.push({ x: rand(6, 74), y: rand(6, 78) })
-  return spots
 }
 
 function TrackingTest({ onDone }: { onDone: DoneFn }) {
   const DURATION = 20
   const [next, setNext] = useState(1)
-  const [pos, setPos] = useState(scatter)
+  // Centros en px del área de juego real (sin colisiones: ver lib/scatter.ts)
+  const [pos, setPos] = useState<Point[] | null>(null)
+  const fieldRef = useRef<HTMLDivElement>(null)
+  const fieldSize = useRef({ w: 0, h: 0 })
   const [left, setLeft] = useState(DURATION)
   const [bad, setBad] = useState<number | null>(null)
+  const [miss, setMiss] = useState(false)
   const cycles = useRef(0)
   const errors = useRef(0)
   const done = useRef(false)
@@ -567,6 +578,31 @@ function TrackingTest({ onDone }: { onDone: DoneFn }) {
   useEffect(() => {
     const id = setInterval(() => setLeft((l) => l - 1), 1000)
     return () => clearInterval(id)
+  }, [])
+
+  // Redistribuye con el tamaño ACTUAL del área (se mide en cada llamada, no se confía en un valor previo)
+  function reshuffle() {
+    const el = fieldRef.current
+    if (!el) return
+    fieldSize.current = { w: el.clientWidth, h: el.clientHeight }
+    setPos(scatter(fieldSize.current.w, fieldSize.current.h))
+  }
+
+  // Mide el área antes del primer pintado y redistribuye si cambia su tamaño
+  // (rotación del dispositivo, redimensionar ventana): nunca quedan círculos fuera o encimados.
+  useLayoutEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    const measure = () => {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      if (Math.abs(w - fieldSize.current.w) < 1 && Math.abs(h - fieldSize.current.h) < 1) return
+      reshuffle()
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [])
 
   useEffect(() => {
@@ -581,6 +617,15 @@ function TrackingTest({ onDone }: { onDone: DoneFn }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left])
 
+  // Toque en el fondo vacío del playfield: cuenta como error
+  function missTap() {
+    if (done.current) return
+    errors.current += 1
+    beepError()
+    setMiss(true)
+    setTimeout(() => setMiss(false), 250)
+  }
+
   function tap(n: number) {
     if (done.current) return
     if (n === next) {
@@ -588,9 +633,10 @@ function TrackingTest({ onDone }: { onDone: DoneFn }) {
         cycles.current += 1
         setNext(1)
       } else setNext(n + 1)
-      setPos(scatter())
+      reshuffle()
     } else {
       errors.current += 1
+      beepError()
       setBad(n)
       setTimeout(() => setBad(null), 250)
     }
@@ -609,26 +655,41 @@ function TrackingTest({ onDone }: { onDone: DoneFn }) {
           </span>
         </div>
       </div>
-      {/* Playfield · Surface #161F30 — scatter con separación mínima ~32u previene toques adyacentes accidentales */}
-      <div className="relative mt-4 min-h-[58vh] w-full flex-1 overflow-hidden rounded-3xl border-2 border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)]">
+      {/* Playfield · Surface #161F30 — separación mínima de 20 px entre bordes de círculos (lib/scatter.ts) */}
+      <div
+        ref={fieldRef}
+        onClick={missTap}
+        className={`relative mt-4 min-h-[58vh] w-full flex-1 overflow-hidden rounded-3xl border-2 transition-colors duration-150 ${
+          miss
+            ? "border-[color:var(--color-no)] bg-[color:var(--color-no)]/10"
+            : "border-[color:var(--color-slate-line)] bg-[color:var(--color-steel)]"
+        }`}
+      >
         {/* Node · Touch Target 76px + label 30px — óptimo dedo/guante fino sin superposición de nodos */}
         {/* Active target: anillo #FFAE00 3px; error transitorio #EF4444 (250ms) */}
-        {[1, 2, 3, 4, 5, 6].map((n) => (
-          <button
-            key={n}
-            onClick={() => tap(n)}
-            style={{ left: `${pos[n - 1].x}%`, top: `${pos[n - 1].y}%` }}
-            className={`absolute grid h-[76px] w-[76px] place-items-center rounded-full font-mono text-[30px] font-800 leading-none tabular-nums transition-all duration-200 active:scale-90 ${
-              bad === n
-                ? "border-2 border-[color:var(--color-no)] bg-[color:var(--color-no)]/25 text-[color:var(--color-no)]"
-                : n === next
-                  ? "border-[3px] border-[color:var(--color-semi)] bg-[color:var(--color-semi)]/15 text-white shadow-[0_0_24px_rgba(255,174,0,0.45)]"
-                  : "border-2 border-[color:var(--color-slate-line)] bg-[color:var(--color-steel-2)] text-white"
-            }`}
-          >
-            {n}
-          </button>
-        ))}
+        {/* Posición sin transición: al reubicarse los círculos saltan, no se deslizan cruzándose */}
+        {pos?.map((p, i) => {
+          const n = i + 1
+          return (
+            <button
+              key={n}
+              onClick={(e) => {
+                e.stopPropagation()
+                tap(n)
+              }}
+              style={{ left: p.x - NODE_SIZE / 2, top: p.y - NODE_SIZE / 2, width: NODE_SIZE, height: NODE_SIZE }}
+              className={`absolute grid place-items-center rounded-full font-mono text-[30px] font-800 leading-none tabular-nums transition-[background-color,border-color,color,box-shadow,transform] duration-200 active:scale-90 ${
+                bad === n
+                  ? "border-2 border-[color:var(--color-no)] bg-[color:var(--color-no)]/25 text-[color:var(--color-no)]"
+                  : n === next
+                    ? "border-[3px] border-[color:var(--color-semi)] bg-[color:var(--color-semi)]/15 text-white shadow-[0_0_24px_rgba(255,174,0,0.45)]"
+                    : "border-2 border-[color:var(--color-slate-line)] bg-[color:var(--color-steel-2)] text-white"
+              }`}
+            >
+              {n}
+            </button>
+          )
+        })}
       </div>
       <p className="mt-4 text-center font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
         Series completadas: {cycles.current}
