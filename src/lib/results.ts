@@ -38,21 +38,24 @@ function toResult(row: EvaluationRow): StoredResult {
   }
 }
 
-/** Registra una evaluación terminada (APTO, SEMI APTO o NO APTO) del trabajador autenticado */
-export async function recordResult(workerId: string, result: BatteryResult): Promise<StoredResult> {
-  const { data, error } = await supabase
-    .from("evaluations")
-    .insert({ worker_id: workerId, score: result.score, status: statusOf(result.score), breakdown: result.breakdown })
-    .select(COLUMNS)
-    .single<EvaluationRow>()
-  if (error || !data) throw new Error(describeError(error))
-  return toResult(data)
+/**
+ * Abre una sesión de evaluación en el servidor. Solo se puede registrar un resultado
+ * dentro de una sesión: el servidor mide la duración y acepta un único envío.
+ */
+export async function startEvaluation(): Promise<string> {
+  const { data, error } = await supabase.rpc("start_evaluation")
+  if (error || typeof data !== "string") throw new Error(describeError(error))
+  return data
 }
 
-function statusOf(score: number): Status {
-  if (score >= 80) return "apto"
-  if (score >= 60) return "semi"
-  return "no"
+/** Registra la evaluación terminada de la sesión; puntaje, estado y hora los fija el servidor */
+export async function recordResult(sessionId: string, result: BatteryResult): Promise<StoredResult> {
+  const { data, error } = await supabase.rpc("submit_evaluation", {
+    p_session_id: sessionId,
+    p_breakdown: result.breakdown,
+  })
+  if (error || !data) throw new Error(describeError(error))
+  return toResult(data as EvaluationRow)
 }
 
 /** Historial de un trabajador, del más antiguo al más reciente */

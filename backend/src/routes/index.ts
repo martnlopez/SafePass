@@ -24,8 +24,14 @@ export function createApiRouter(c: Container): Router {
   const admin = authorize("ADMIN")
 
   // ── Auth ──
-  api.post("/auth/login", c.limiters.login, c.controllers.auth.login)
-  api.post("/auth/totem/session", c.limiters.login, requireTotemKey(c.services.auth), c.controllers.auth.startTotemSession)
+  api.post("/auth/login", c.limiters.login, c.limiters.loginPerAccount, c.controllers.auth.login)
+  api.post(
+    "/auth/totem/session",
+    c.limiters.login,
+    c.limiters.loginPerAccount,
+    requireTotemKey(c.services.auth),
+    c.controllers.auth.startTotemSession,
+  )
   api.get("/auth/me", auth, staff, c.controllers.auth.me)
 
   // ── Workers ──

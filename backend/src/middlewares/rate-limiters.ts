@@ -35,6 +35,22 @@ export function createRateLimiters(config: AppConfig) {
     /** Login y apertura de sesión en tótem: solo cuentan los intentos fallidos */
     login: limiter({ windowMs, limit: config.RATE_LIMIT_LOGIN_MAX, skipSuccessfulRequests: true }),
 
+    /**
+     * Fallos por (IP, ficha): una misma IP no puede adivinar el PIN de una cuenta ni
+     * mantenerla bloqueada. El bloqueo de la cuenta (umbral más alto) queda para la
+     * fuerza bruta distribuida entre muchas IP.
+     */
+    loginPerAccount: limiter({
+      windowMs,
+      limit: config.RATE_LIMIT_LOGIN_PER_ACCOUNT_MAX,
+      skipSuccessfulRequests: true,
+      keyGenerator: (req: Request) => {
+        const body = req.body as { fichaId?: unknown } | undefined
+        const ficha = typeof body?.fichaId === "string" ? body.fichaId.trim().toUpperCase().slice(0, 16) : "-"
+        return `${ipKeyGenerator(req.ip ?? "unknown")}:${ficha}`
+      },
+    }),
+
     /** Envío de evaluaciones: por tótem (si hay sesión) o por IP */
     evaluationSubmit: limiter({
       windowMs: 60_000,

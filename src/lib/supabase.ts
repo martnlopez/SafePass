@@ -36,6 +36,13 @@ export function describeError(error: unknown): string {
     INVALID_BREAKDOWN: "El resultado de la evaluación llegó incompleto. Vuelve a rendir la evaluación.",
     EVALUATION_TOO_SOON: "Ya registraste una evaluación hace menos de 2 minutos.",
     ACCOUNT_DISABLED: "Tu cuenta no está habilitada. Contacta a tu supervisor.",
+    EVALUATION_SESSION_INVALID: "La sesión de evaluación ya no es válida. Vuelve a iniciar la evaluación.",
+    EVALUATION_SESSION_REQUIRED: "La sesión de evaluación ya no es válida. Vuelve a iniciar la evaluación.",
+    EVALUATION_SESSION_EXPIRED: "La evaluación tardó demasiado (más de 30 minutos). Vuelve a iniciarla.",
+    EVALUATION_TOO_FAST: "La evaluación terminó demasiado rápido para ser válida. Vuelve a rendirla con calma.",
+    TOO_MANY_SESSIONS: "Demasiados intentos en la última hora. Avisa a tu supervisor.",
+    SELF_DECISION_NOT_ALLOWED: "No puedes registrar una decisión sobre tu propia evaluación. Debe hacerlo otro supervisor.",
+    NOT_ALLOWED: "No tienes permiso para realizar esta acción.",
   }
   if (KNOWN[code]) return KNOWN[code]
   if (/fetch|network|Failed to fetch/i.test(code)) return "Sin conexión con el servidor. Revisa la red e inténtalo de nuevo."

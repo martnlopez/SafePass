@@ -98,6 +98,9 @@ export class AuthService {
     }
     const totem = await this.totems.findById(claims.tid)
     if (!totem?.active) throw Errors.unauthorized("Sesión no válida", "INVALID_SESSION")
+    // Un trabajador desactivado durante la sesión ya no puede registrar la evaluación
+    const [subject] = await this.workers.findByPseudonymIds([claims.sub])
+    if (!subject?.active) throw Errors.unauthorized("Sesión no válida", "INVALID_SESSION")
     return { kind: "totem", role: "TOTEM", subjectId: claims.sub, totemId: claims.tid, sessionId: claims.jti }
   }
 
@@ -119,13 +122,16 @@ export class AuthService {
       throw INVALID_CREDENTIALS()
     }
 
+    // Cuenta bloqueada: misma respuesta y mismo costo que un PIN erróneo, para no revelar
+    // que la ficha existe ni que está bloqueada (el motivo queda en la auditoría)
     const now = this.now()
     if (worker.lockedUntil && worker.lockedUntil > now) {
-      throw Errors.tooManyRequests(
-        "Cuenta bloqueada temporalmente por intentos fallidos",
-        Math.ceil((worker.lockedUntil.getTime() - now.getTime()) / 1000),
-        "ACCOUNT_LOCKED",
+      await this.pins.verifyAgainstDummy(dto.pin)
+      await this.audit.record(
+        { actorType: "ANONYMOUS", actorId: null, action: "LOGIN_FAILED", entityType: "Worker", entityId: worker.id, metadata: { reason: "locked" } },
+        ctx,
       )
+      throw INVALID_CREDENTIALS()
     }
 
     if (!(await this.pins.verify(worker.pinHash, dto.pin))) {
@@ -140,7 +146,7 @@ export class AuthService {
           { actorType: "ANONYMOUS", actorId: null, action: "ACCOUNT_LOCKED", entityType: "Worker", entityId: worker.id },
           ctx,
         )
-        throw Errors.tooManyRequests("Cuenta bloqueada temporalmente por intentos fallidos", lockSeconds, "ACCOUNT_LOCKED")
+        throw INVALID_CREDENTIALS()
       }
       await this.audit.record(
         {
@@ -156,7 +162,14 @@ export class AuthService {
       throw INVALID_CREDENTIALS()
     }
 
-    if (!worker.active) throw Errors.forbidden("Cuenta desactivada. Contacta a tu supervisor.", "ACCOUNT_DISABLED")
+    // Cuenta desactivada: respuesta genérica (un mensaje propio confirmaría que el PIN era correcto)
+    if (!worker.active) {
+      await this.audit.record(
+        { actorType: "ANONYMOUS", actorId: null, action: "LOGIN_FAILED", entityType: "Worker", entityId: worker.id, metadata: { reason: "disabled" } },
+        ctx,
+      )
+      throw INVALID_CREDENTIALS()
+    }
 
     if (worker.failedLoginAttempts > 0 || worker.lockedUntil) {
       await this.workers.update(worker.id, { failedLoginAttempts: 0, lockedUntil: null })

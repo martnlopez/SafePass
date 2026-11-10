@@ -12,7 +12,7 @@ import { signOut, type WorkerProfile } from "./lib/auth"
 import { semiBlockUntil } from "./lib/block"
 import type { BatteryResult } from "./lib/data"
 import { fetchPendingDecisionForWorker, type SupervisorDecision } from "./lib/decisions"
-import { fetchLatestResult, recordResult } from "./lib/results"
+import { fetchLatestResult, recordResult, startEvaluation } from "./lib/results"
 
 type WorkerView = "login" | "decision" | "dashboard" | "test" | "saving" | "results"
 type Mode = "worker" | "supervisor"
@@ -25,6 +25,10 @@ export default function App() {
   const [result, setResult] = useState<BatteryResult | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [decision, setDecision] = useState<SupervisorDecision | null>(null)
+  // Sesión de evaluación emitida por el servidor (requisito para registrar el resultado)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [startError, setStartError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
 
   // Cierra la sesión de Supabase y vuelve al login (trabajador o supervisor)
   async function logout() {
@@ -33,6 +37,8 @@ export default function App() {
     setResult(null)
     setDecision(null)
     setSaveError(null)
+    setSessionId(null)
+    setStartError(null)
     setMode("worker")
     setSupView("menu")
     setView("login")
@@ -63,12 +69,29 @@ export default function App() {
     setView("dashboard")
   }
 
+  // El servidor abre la sesión solo si las reglas permiten evaluar (descansos, decisión pendiente)
+  async function startTest() {
+    if (starting) return
+    setStarting(true)
+    setStartError(null)
+    try {
+      setSessionId(await startEvaluation())
+      setView("test")
+    } catch (err) {
+      setStartError((err as Error).message)
+    } finally {
+      setStarting(false)
+    }
+  }
+
   async function handleComplete(r: BatteryResult) {
     if (!profile) return
     setView("saving")
     try {
+      if (!sessionId) throw new Error("La sesión de evaluación no es válida. Vuelve a iniciar la evaluación.")
       // El servidor fija la hora y aplica las reglas; el panel del supervisor lo recibe en tiempo real
-      const saved = await recordResult(profile.id, r)
+      const saved = await recordResult(sessionId, r)
+      setSessionId(null)
       // Puntaje y hora oficiales: los recalcula el servidor a partir del desglose
       setResult({ ...r, score: saved.score, completedAt: saved.completedAt })
       setSaveError(null)
@@ -107,7 +130,13 @@ export default function App() {
           />
         )}
         {view === "dashboard" && profile && (
-          <WorkerDashboard profile={profile} onStart={() => setView("test")} onLogout={() => void logout()} />
+          <WorkerDashboard
+            profile={profile}
+            onStart={() => void startTest()}
+            starting={starting}
+            startError={startError}
+            onLogout={() => void logout()}
+          />
         )}
         {view === "test" && profile && <CognitiveTest fichaId={profile.fichaId} onComplete={(r) => void handleComplete(r)} />}
         {view === "saving" && (

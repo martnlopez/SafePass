@@ -48,20 +48,49 @@ describe("API SafePass", () => {
       expect(res.body.error.code).toBe("STAFF_ONLY")
     })
 
-    it("bloquea la cuenta tras 5 PIN erróneos y la libera al vencer el plazo", async () => {
+    it("bloquea la cuenta al llegar al umbral, sin revelarlo, y la libera al vencer el plazo", async () => {
+      const a = createTestApp({ LOGIN_MAX_ATTEMPTS: "5" })
+      const sup = await a.seedWorker("SUP-0002", "SUPERVISOR")
       const codes: number[] = []
       for (let i = 0; i < 5; i++) {
-        codes.push((await request(t.app).post("/api/v1/auth/login").send({ fichaId: supervisor.fichaId, pin: "000019" })).status)
+        codes.push((await request(a.app).post("/api/v1/auth/login").send({ fichaId: sup.fichaId, pin: "000019" })).status)
       }
-      expect(codes).toEqual([401, 401, 401, 401, 429])
-      const locked = await request(t.app).post("/api/v1/auth/login").send({ fichaId: supervisor.fichaId, pin: supervisor.pin })
-      expect(locked.status).toBe(429)
-      expect(locked.body.error.code).toBe("ACCOUNT_LOCKED")
-      expect(Number(locked.headers["retry-after"])).toBe(900)
+      expect(codes).toEqual([401, 401, 401, 401, 401])
+      // Bloqueada: incluso con el PIN correcto responde igual que un PIN erróneo
+      const locked = await request(a.app).post("/api/v1/auth/login").send({ fichaId: sup.fichaId, pin: sup.pin })
+      expect(locked.status).toBe(401)
+      expect(locked.body.error.code).toBe("INVALID_CREDENTIALS")
+      expect(a.repos.audit.entries.map((e) => e.action)).toContain("ACCOUNT_LOCKED")
 
-      advanceMinutes(16)
+      a.clock.now = new Date(a.clock.now.getTime() + 16 * 60_000)
+      const ok = await request(a.app).post("/api/v1/auth/login").send({ fichaId: sup.fichaId, pin: sup.pin })
+      expect(ok.status).toBe(200)
+    })
+
+    it("pocos intentos ajenos no bloquean la cuenta (umbral por defecto 20)", async () => {
+      for (let i = 0; i < 5; i++) {
+        await request(t.app).post("/api/v1/auth/login").send({ fichaId: supervisor.fichaId, pin: "000019" })
+      }
       const ok = await request(t.app).post("/api/v1/auth/login").send({ fichaId: supervisor.fichaId, pin: supervisor.pin })
       expect(ok.status).toBe(200)
+    })
+
+    it("una cuenta desactivada con el PIN correcto recibe la misma respuesta genérica", async () => {
+      await t.repos.workers.update(supervisor.id, { active: false })
+      const res = await request(t.app).post("/api/v1/auth/login").send({ fichaId: supervisor.fichaId, pin: supervisor.pin })
+      expect(res.status).toBe(401)
+      expect(res.body.error.code).toBe("INVALID_CREDENTIALS")
+    })
+
+    it("un trabajador desactivado durante la sesión del tótem no puede registrar la evaluación", async () => {
+      const session = await t.totemSession(totem.key, operator.fichaId, operator.pin)
+      expect(session.status).toBe(201)
+      await t.repos.workers.update(operator.id, { active: false })
+      const res = await request(t.app)
+        .post("/api/v1/evaluations")
+        .set("Authorization", `Bearer ${session.body.sessionToken}`)
+        .send(METRICS.verde)
+      expect(res.status).toBe(401)
     })
 
     it("una cuenta desactivada pierde el acceso aunque tenga un token vigente", async () => {
@@ -210,6 +239,30 @@ describe("API SafePass", () => {
 
       advanceMinutes(5)
       expect((await t.totemSession(totem.key, operator.fichaId, operator.pin)).status).toBe(201)
+    })
+
+    it("un supervisor no puede revisar ni autorizar su propia evaluación", async () => {
+      const own = await submit(METRICS.rojo, supervisor)
+      expect(own.status).toBe(201)
+      const sup = { Authorization: `Bearer ${await t.staffToken(supervisor.fichaId, supervisor.pin)}` }
+      const self = await request(t.app)
+        .put(`/api/v1/evaluations/${own.body.id}`)
+        .set(sup)
+        .send({ status: "VERDE", note: "Me autorizo a mí mismo" })
+      expect(self.status).toBe(403)
+      expect(self.body.error.code).toBe("SELF_REVIEW_NOT_ALLOWED")
+
+      const adm = { Authorization: `Bearer ${await t.staffToken(admin.fichaId, admin.pin)}` }
+      const other = await request(t.app)
+        .put(`/api/v1/evaluations/${own.body.id}`)
+        .set(adm)
+        .send({ decision: "AUTORIZAR_REEVALUACION", note: "Revisado por otra persona" })
+      expect(other.status).toBe(200)
+    })
+
+    it("rechaza métricas incoherentes con la duración de la prueba", async () => {
+      const res = await submit({ ...METRICS.verde, totalStimuli: 1, omissions: 0, durationSeconds: 30 })
+      expect(res.status).toBe(400)
     })
 
     it("una sesión de tótem registra una sola evaluación", async () => {

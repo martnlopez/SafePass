@@ -36,11 +36,21 @@ El esquema está versionado en [`supabase/migrations`](./supabase/migrations):
 | `workers` | Perfil de cada Ficha ID (nombre, cargo, empresa, turno, rol `worker` / `supervisor`) |
 | `evaluations` | Resultado de cada batería: puntaje 0-100, estado, desglose y hora de finalización |
 | `decisions` | Decisiones del supervisor y su comentario; los NO APTO generan "Revisión pendiente" automáticamente |
-| `access_passes` | Pases de acceso emitidos por el servidor (12 h de vigencia) |
+| `access_passes` | Pases de acceso emitidos por el servidor (vencen 12 h después del test APTO) |
 
 Reglas que aplica el servidor, aunque se modifique el frontend:
 - Cada trabajador solo ve sus propios datos; el supervisor ve todo.
+- La evaluación solo se registra dentro de una sesión del servidor (`start_evaluation` →
+  `submit_evaluation`): un envío por sesión, mínimo 60 s y máximo 30 min. No se puede insertar
+  directamente en `evaluations`, y el puntaje lo calcula el servidor desde el desglose.
 - SEMI-APTO: descanso de 5 min antes de volver a rendir.
 - NO APTO: no puede volver a rendir hasta que el supervisor lo autorice; el re-test autorizado
   exige 15 min de descanso.
-- El pase solo se emite con un resultado APTO vigente o un Pase Excepcional del supervisor.
+- El pase solo se emite con un resultado APTO vigente o un Pase Excepcional del supervisor,
+  que es de un solo uso.
+- El supervisor valida el pase en el servidor (`validate_pass`): queda **revocado** si la cuenta
+  se desactivó, si hubo una decisión posterior a su emisión o si una evaluación posterior no fue APTA.
+- Ningún supervisor puede registrar decisiones sobre su propia evaluación.
+
+Pendiente en el panel de Supabase (no se versiona en el repo): desactivar el registro público,
+activar CAPTCHA y límites de inicio de sesión, y la protección contra contraseñas filtradas.

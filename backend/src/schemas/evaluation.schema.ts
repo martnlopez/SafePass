@@ -19,6 +19,12 @@ export const CreateEvaluationBody = z
     path: ["omissions"],
     message: "Las omisiones no pueden superar el total de estímulos",
   })
+  // Plausibilidad PVT: el intervalo entre estímulos es de 2 a 10 s, así que una prueba de
+  // N segundos presenta al menos N/10 estímulos y a lo sumo N/2
+  .refine((m) => m.totalStimuli >= Math.ceil(m.durationSeconds / 10) && m.totalStimuli <= Math.ceil(m.durationSeconds / 2), {
+    path: ["totalStimuli"],
+    message: "La cantidad de estímulos no es coherente con la duración de la prueba",
+  })
 export type CreateEvaluationDto = z.infer<typeof CreateEvaluationBody>
 
 const IsoDate = z.iso.datetime({ offset: true }).transform((v) => new Date(v))

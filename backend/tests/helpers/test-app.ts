@@ -24,6 +24,7 @@ export function testConfig(overrides: Record<string, string> = {}) {
     BLIND_INDEX_KEY: randomBytes(32).toString("base64"),
     RATE_LIMIT_MAX: "10000",
     RATE_LIMIT_LOGIN_MAX: "10000",
+    RATE_LIMIT_LOGIN_PER_ACCOUNT_MAX: "10000",
     RATE_LIMIT_EVALUATIONS_PER_MINUTE: "10000",
     ...overrides,
   })

@@ -34,6 +34,8 @@ export default function ManageModal({
   const [saveError, setSaveError] = useState<string | null>(null)
   const m = STATUS_META[evaluation.status]
   // Desglose real si la ficha rindió en la app; si no, el de los datos de ejemplo
+  // Sin desglose registrado se muestran cifras estimadas, marcadas como tales (no son mediciones)
+  const estimated = !evaluation.breakdown
   const breakdown = useMemo(() => evaluation.breakdown ?? buildBreakdown(evaluation), [evaluation])
   const currentIsActive = current !== null && isDecisionCurrent(current, evaluation.completedAt)
   const isCritical = evaluation.status === "no"
@@ -104,6 +106,11 @@ export default function ManageModal({
             <h3 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[color:var(--color-fog)]">
               Ficha técnica · últimos 5 tests
             </h3>
+            {estimated && (
+              <p className="mt-2 text-xs text-[color:var(--color-semi)]">
+                Estimado: esta evaluación no tiene desglose registrado. Las cifras se derivan del puntaje global y no son mediciones.
+              </p>
+            )}
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
               {breakdown.map((f, i) => {
                 const fm = STATUS_META[f.severity]

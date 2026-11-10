@@ -285,4 +285,11 @@ revoke all on function private.decisions_before_insert() from public, anon, auth
 
 -- ── Permisos sobrantes ─────────────────────────────────────────────────
 revoke insert, update, delete, truncate on public.latest_evaluations, public.latest_decisions from authenticated;
-revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
+-- rls_auto_enable la crea la plataforma; en un entorno nuevo puede no existir
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
+  end if;
+end;
+$$;

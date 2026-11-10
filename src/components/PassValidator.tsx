@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import CameraScanner from "./CameraScanner"
 import SupervisorShell, { MenuCard } from "./SupervisorShell"
-import { formatPassCode, isCompletePassCode, validatePass, type ValidationResult } from "../lib/pass"
+import { REVOKE_REASON_TEXT, formatPassCode, isCompletePassCode, validatePass, type ValidationResult } from "../lib/pass"
 
 // Mismo corte que el resto de la app: < lg = móvil/tablet, >= lg = escritorio.
 function useIsMobile() {
@@ -65,6 +65,8 @@ function ResultModal({ result, onClose }: { result: ValidationResult; onClose: (
       ? "PASE VÁLIDO - OPERADOR APTO"
       : result.status === "expired"
         ? "PASE EXPIRADO"
+        : result.status === "revoked"
+          ? "PASE REVOCADO"
         : result.status === "error"
           ? "NO SE PUDO VERIFICAR"
           : "PASE INVÁLIDO"
@@ -95,6 +97,12 @@ function ResultModal({ result, onClose }: { result: ValidationResult; onClose: (
             {result.message} No autorices el ingreso hasta poder verificar el pase.
           </p>
         ) : (
+          <>
+          {result.status === "revoked" && (
+            <p className="mt-2 text-sm text-[color:var(--color-fog)]">
+              {REVOKE_REASON_TEXT[result.reason]} No autorices el ingreso.
+            </p>
+          )}
           <div className="mt-4 space-y-1 rounded-xl bg-[color:var(--color-ink)] p-4 font-mono text-sm text-[color:var(--color-mist)]">
             <p className="text-lg font-800 text-white">{result.pass.fichaId}</p>
             <p className="text-[color:var(--color-mist)]">{result.holder.fullName}</p>
@@ -105,9 +113,10 @@ function ResultModal({ result, onClose }: { result: ValidationResult; onClose: (
             <p className="text-[color:var(--color-fog)]">Código {result.pass.code}</p>
             <p className="text-[color:var(--color-fog)]">Emitido {fmt(result.pass.issuedAt)}</p>
             <p className="text-[color:var(--color-fog)]">
-              {ok ? "Vence" : "Venció"} {fmt(result.pass.expiresAt)}
+              {result.status === "expired" ? "Venció" : "Vence"} {fmt(result.pass.expiresAt)}
             </p>
           </div>
+          </>
         )}
         <button
           onClick={onClose}

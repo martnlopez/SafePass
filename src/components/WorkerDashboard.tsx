@@ -9,10 +9,14 @@ export default function WorkerDashboard({
   profile,
   onStart,
   onLogout,
+  starting = false,
+  startError = null,
 }: {
   profile: WorkerProfile
   onStart: () => void
   onLogout: () => void
+  starting?: boolean
+  startError?: string | null
 }) {
   const today = new Date().toLocaleDateString("es-CL", {
     weekday: "long",
@@ -121,8 +125,13 @@ export default function WorkerDashboard({
                 ))}
               </div>
             </div>
-            <button onClick={onStart} className="mt-8 flex h-16 w-full items-center justify-between rounded-xl bg-[color:var(--color-semi)] px-6 transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99]">
-              <span className="text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)]">Iniciar evaluación</span>
+            {startError && (
+              <p role="alert" className="mt-6 rounded-lg border border-[color:var(--color-no)] bg-[color:var(--color-ink)]/40 px-4 py-3 text-sm text-white">
+                {startError}
+              </p>
+            )}
+            <button onClick={onStart} disabled={starting} className="mt-8 flex h-16 w-full items-center justify-between rounded-xl bg-[color:var(--color-semi)] px-6 transition-all hover:bg-[color:var(--color-semi-dim)] active:scale-[0.99] disabled:opacity-60">
+              <span className="text-lg font-800 uppercase tracking-wide text-[color:var(--color-ink)]">{starting ? "Preparando…" : "Iniciar evaluación"}</span>
               <span className="text-2xl font-800 text-[color:var(--color-ink)]">→</span>
             </button>
           </div>

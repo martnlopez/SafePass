@@ -42,13 +42,16 @@ const EnvSchema = z
     FIELD_ENCRYPTION_KEY: key32("FIELD_ENCRYPTION_KEY"),
     BLIND_INDEX_KEY: key32("BLIND_INDEX_KEY"),
 
-    LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(3).max(20).default(5),
+    // Bloqueo de la cuenta completa: umbral alto para que un tercero no pueda bloquear
+    // a otro con pocos intentos (el límite por IP+ficha frena la adivinación desde una IP)
+    LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(5).max(100).default(20),
     LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
     RETEST_COOLDOWN_MINUTES: z.coerce.number().int().min(0).max(120).default(5),
 
     RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
     RATE_LIMIT_MAX: z.coerce.number().int().min(10).default(300),
     RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(10),
+    RATE_LIMIT_LOGIN_PER_ACCOUNT_MAX: z.coerce.number().int().min(1).default(5),
     RATE_LIMIT_EVALUATIONS_PER_MINUTE: z.coerce.number().int().min(1).default(20),
   })
   .superRefine((env, ctx) => {

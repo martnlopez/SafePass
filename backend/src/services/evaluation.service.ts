@@ -156,6 +156,12 @@ export class EvaluationService implements EvaluationEligibility {
     const evaluation = await this.findOrFail(id)
     if (evaluation.voidedAt) throw Errors.conflict("La evaluación está anulada", "EVALUATION_VOIDED")
 
+    // Separación de funciones: nadie revisa ni autoriza su propia evaluación
+    const reviewerRecord = await this.workers.findById(reviewer.workerId)
+    if (reviewerRecord && reviewerRecord.pseudonymId === evaluation.subjectId) {
+      throw Errors.forbidden("Otro supervisor debe revisar tu evaluación.", "SELF_REVIEW_NOT_ALLOWED")
+    }
+
     const changes: EvaluationChanges = { reviewedById: reviewer.workerId, reviewedAt: this.now() }
     if (dto.status) changes.status = dto.status
     if (dto.decision) changes.supervisorDecision = dto.decision
