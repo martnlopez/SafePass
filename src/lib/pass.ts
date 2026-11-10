@@ -49,6 +49,22 @@ function toPass(p: { id: string; code: string; ficha_id: string; issued_at: stri
   }
 }
 
+/**
+ * Pase vigente más reciente del trabajador autenticado (las reglas RLS solo devuelven
+ * los propios). No emite nada: sirve para volver a mostrarlo al iniciar sesión de nuevo.
+ */
+export async function fetchActivePass(fichaId: string): Promise<AccessPass | null> {
+  const { data, error } = await supabase
+    .from("access_passes")
+    .select("id, code, issued_at, expires_at")
+    .gt("expires_at", new Date().toISOString())
+    .order("issued_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string; code: string; issued_at: string; expires_at: string }>()
+  if (error) throw new Error(describeError(error))
+  return data ? toPass({ ...data, ficha_id: fichaId }) : null
+}
+
 /** Emite (o recupera, si ya existe uno vigente) el pase del trabajador autenticado */
 export async function issueAccessPass(): Promise<AccessPass> {
   const { data, error } = await supabase.rpc("issue_access_pass")

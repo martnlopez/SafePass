@@ -50,17 +50,20 @@ export default function TestResults({
   onRetry,
   onDone,
   saveError = null,
+  initialPass = null,
 }: {
   result: BatteryResult
   onRetry: () => void
   onDone: () => void
   /** Error al guardar el resultado en el servidor (null = guardado) */
   saveError?: string | null
+  /** Pase ya emitido (al volver a iniciar sesión con un APTO vigente) */
+  initialPass?: AccessPass | null
 }) {
   const { score, breakdown, fichaId } = result
   const status = scoreToStatus(score)
   const m = STATUS_META[status]
-  const [pass, setPass] = useState<AccessPass | null>(null)
+  const [pass, setPass] = useState<AccessPass | null>(initialPass)
   const [passBusy, setPassBusy] = useState(false)
   const [passError, setPassError] = useState<string | null>(null)
   // Temporizador solo en SEMI APTO (5 min desde la hora de finalización que fija el servidor).

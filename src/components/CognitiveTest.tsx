@@ -357,30 +357,44 @@ function GoNoGoTest({ onDone }: { onDone: DoneFn }) {
   const falseAlarms = useRef(0)
   const misses = useRef(0)
   const advance = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const gap = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const moving = useRef(false)
 
   useEffect(() => {
     answered.current = false
+    moving.current = false
     setShown(true)
+    // Sin respuesta en 1 s: avanza solo (y cuenta como omisión si era Go)
     advance.current = setTimeout(() => {
-      // evaluate no-response
-      if (!answered.current) {
-        if (seq[i]) misses.current += 1 // missed a Go
-      }
-      setShown(false)
-      setTimeout(() => {
-        if (i + 1 >= TOTAL) finish()
-        else setI((n) => n + 1)
-      }, 260)
+      if (!answered.current && seq[i]) misses.current += 1
+      next()
     }, 1000)
-    return () => clearTimeout(advance.current)
+    return () => {
+      clearTimeout(advance.current)
+      clearTimeout(gap.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i])
 
+  // Pasa al siguiente estímulo tras una pausa breve, sin esperar el resto del segundo
+  function next() {
+    if (moving.current) return
+    moving.current = true
+    clearTimeout(advance.current)
+    setShown(false)
+    gap.current = setTimeout(() => {
+      if (i + 1 >= TOTAL) finish()
+      else setI((n) => n + 1)
+    }, 260)
+  }
+
+  // Al tocar (verde o rojo) se registra la respuesta y se avanza de inmediato
   function tap() {
     if (answered.current || !shown) return
     answered.current = true
     if (seq[i]) hits.current += 1
     else falseAlarms.current += 1
+    next()
   }
 
   function finish() {

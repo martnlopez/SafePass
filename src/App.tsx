@@ -8,13 +8,18 @@ import WorkerShell from "./components/WorkerShell"
 import SupervisorMenu from "./components/SupervisorMenu"
 import PassValidator from "./components/PassValidator"
 import SupervisorDecisionNotice from "./components/SupervisorDecisionNotice"
+import ActivePassView from "./components/ActivePassView"
+import { fetchActivePass, type AccessPass } from "./lib/pass"
 import { signOut, type WorkerProfile } from "./lib/auth"
 import { semiBlockUntil } from "./lib/block"
 import type { BatteryResult } from "./lib/data"
 import { fetchPendingDecisionForWorker, type SupervisorDecision } from "./lib/decisions"
 import { fetchLatestResult, recordResult, startEvaluation } from "./lib/results"
 
-type WorkerView = "login" | "decision" | "dashboard" | "test" | "saving" | "results"
+type WorkerView = "login" | "decision" | "dashboard" | "test" | "saving" | "results" | "pass"
+
+/** Un resultado APTO habilita el pase durante 12 h (mismo plazo que aplica el servidor) */
+const APTO_VALID_MS = 12 * 60 * 60_000
 type Mode = "worker" | "supervisor"
 
 export default function App() {
@@ -29,6 +34,8 @@ export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  // Pase vigente encontrado al volver a iniciar sesión
+  const [activePass, setActivePass] = useState<AccessPass | null>(null)
 
   // Cierra la sesión de Supabase y vuelve al login (trabajador o supervisor)
   async function logout() {
@@ -39,6 +46,7 @@ export default function App() {
     setSaveError(null)
     setSessionId(null)
     setStartError(null)
+    setActivePass(null)
     setMode("worker")
     setSupView("menu")
     setView("login")
@@ -66,6 +74,24 @@ export default function App() {
       setView("results")
       return
     }
+    // Pase vigente (APTO de las últimas 12 h o Pase Excepcional ya emitido): se vuelve a mostrar.
+    // Si falla la consulta, sigue al panel normal en vez de bloquear el ingreso.
+    const pass = await fetchActivePass(p.fichaId).catch(() => null)
+    const passIsCurrent = pass !== null && (!latest || pass.issuedAt >= latest.completedAt)
+    const aptoIsCurrent = latest?.status === "apto" && Date.now() - latest.completedAt < APTO_VALID_MS
+    if (aptoIsCurrent && latest?.breakdown) {
+      // Pantalla de resultado APTO: muestra el pase o permite generarlo si aún no lo hizo
+      setResult({ fichaId: p.fichaId, score: latest.score, z: 0, breakdown: latest.breakdown, completedAt: latest.completedAt })
+      setActivePass(passIsCurrent ? pass : null)
+      setSaveError(null)
+      setView("results")
+      return
+    }
+    if (passIsCurrent) {
+      setActivePass(pass)
+      setView("pass")
+      return
+    }
     setView("dashboard")
   }
 
@@ -74,11 +100,13 @@ export default function App() {
     if (starting) return
     setStarting(true)
     setStartError(null)
+    setActivePass(null)
     try {
       setSessionId(await startEvaluation())
       setView("test")
     } catch (err) {
       setStartError((err as Error).message)
+      setView("dashboard")
     } finally {
       setStarting(false)
     }
@@ -145,7 +173,19 @@ export default function App() {
           </div>
         )}
         {view === "results" && result && (
-          <TestResults result={result} saveError={saveError} onRetry={() => setView("test")} onDone={() => void logout()} />
+          <TestResults
+            // Remonta al cambiar de resultado para no arrastrar el pase anterior
+            key={result.completedAt ?? "nuevo"}
+            result={result}
+            saveError={saveError}
+            initialPass={activePass}
+            // Reintentar abre una sesión nueva en el servidor (la anterior ya no sirve)
+            onRetry={() => void startTest()}
+            onDone={() => void logout()}
+          />
+        )}
+        {view === "pass" && activePass && profile && (
+          <ActivePassView pass={activePass} fichaId={profile.fichaId} onExit={() => void logout()} />
         )}
       </WorkerShell>
     </div>
