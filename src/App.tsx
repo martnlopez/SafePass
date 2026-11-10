@@ -36,6 +36,8 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   // Pase vigente encontrado al volver a iniciar sesión
   const [activePass, setActivePass] = useState<AccessPass | null>(null)
+  // Resultado terminado que no se pudo guardar (p. ej. sin señal), pendiente de reenvío
+  const [unsaved, setUnsaved] = useState<BatteryResult | null>(null)
 
   // Cierra la sesión de Supabase y vuelve al login (trabajador o supervisor)
   async function logout() {
@@ -47,6 +49,7 @@ export default function App() {
     setSessionId(null)
     setStartError(null)
     setActivePass(null)
+    setUnsaved(null)
     setMode("worker")
     setSupView("menu")
     setView("login")
@@ -120,10 +123,14 @@ export default function App() {
       // El servidor fija la hora y aplica las reglas; el panel del supervisor lo recibe en tiempo real
       const saved = await recordResult(sessionId, r)
       setSessionId(null)
+      setUnsaved(null)
       // Puntaje y hora oficiales: los recalcula el servidor a partir del desglose
       setResult({ ...r, score: saved.score, completedAt: saved.completedAt })
       setSaveError(null)
     } catch (err) {
+      // El resultado queda en memoria junto a su sesión: "Reintentar envío" lo reenvía sin
+      // repetir el test (el servidor es idempotente por sesión)
+      setUnsaved(sessionId ? r : null)
       setResult(r)
       setSaveError((err as Error).message)
     }
@@ -181,6 +188,7 @@ export default function App() {
             initialPass={activePass}
             // Reintentar abre una sesión nueva en el servidor (la anterior ya no sirve)
             onRetry={() => void startTest()}
+            onResend={unsaved ? () => void handleComplete(unsaved) : undefined}
             onDone={() => void logout()}
           />
         )}

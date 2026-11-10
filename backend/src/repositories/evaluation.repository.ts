@@ -42,6 +42,8 @@ export interface EvaluationListFilter {
 export interface EvaluationRepository {
   create(data: NewEvaluation): Promise<EvaluationRecord>
   findById(id: string): Promise<EvaluationRecord | null>
+  /** Evaluación registrada por una sesión de tótem (eco idempotente de reintentos) */
+  findBySessionId(sessionId: string): Promise<EvaluationRecord | null>
   /** Última evaluación no anulada del seudónimo (reglas de re-evaluación) */
   findLatestActiveBySubject(subjectId: string): Promise<EvaluationRecord | null>
   list(filter: EvaluationListFilter, page: PageRequest): Promise<Page<EvaluationRecord>>
@@ -64,6 +66,11 @@ export class PrismaEvaluationRepository implements EvaluationRepository {
 
   async findById(id: string): Promise<EvaluationRecord | null> {
     const row = await this.db.evaluation.findUnique({ where: { id }, include: withTotem })
+    return row ? toRecord(row) : null
+  }
+
+  async findBySessionId(sessionId: string): Promise<EvaluationRecord | null> {
+    const row = await this.db.evaluation.findUnique({ where: { sessionId }, include: withTotem })
     return row ? toRecord(row) : null
   }
 

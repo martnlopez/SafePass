@@ -1,0 +1,56 @@
+# Integración continua (prompt de arquitectura §5.9.1): en cada push y pull request se
+# verifican tipos, build y la suite de pruebas. Con la suite en verde se refactoriza sin miedo.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (tipos + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tipos y build de producción
+        run: npm run build
+        env:
+          # Valores de relleno: el build no se conecta a Supabase
+          VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+  backend:
+    name: Backend (tipos + pruebas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      # postinstall ejecuta "prisma generate"; no necesita una base de datos real
+      - run: npm ci
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      - run: npm run typecheck
+      - name: Pruebas (unitarias, contrato y fronteras entre capas)
+        run: npm test

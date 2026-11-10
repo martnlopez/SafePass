@@ -71,6 +71,12 @@ export class EvaluationService implements EvaluationEligibility {
 
   /** Registro desde el tótem: el servidor calcula puntaje y dictamen; el cliente solo envía métricas crudas */
   async submit(session: TotemSessionPrincipal, dto: CreateEvaluationDto, ctx: RequestContext) {
+    // Idempotencia por sesión: si la respuesta se perdió y el tótem reintenta, se devuelve la
+    // misma evaluación (eco) en vez de un error. Va antes de las reglas, que ya se aplicaron
+    // cuando se registró, para que el reintento de un ROJO no termine en 403.
+    const previous = await this.evaluations.findBySessionId(session.sessionId)
+    if (previous) return this.toTotemDto(previous, true)
+
     await this.assertCanStartEvaluation(session.subjectId)
     const result = computePvtScore(dto)
 
@@ -88,6 +94,9 @@ export class EvaluationService implements EvaluationEligibility {
       })
     } catch (err) {
       if (err instanceof UniqueConstraintError) {
+        // Dos envíos simultáneos de la misma sesión: el que perdió la carrera recibe el eco
+        const winner = await this.evaluations.findBySessionId(session.sessionId)
+        if (winner) return this.toTotemDto(winner, true)
         throw Errors.conflict("Esta sesión ya registró una evaluación. Inicia una nueva sesión.", "SESSION_ALREADY_USED")
       }
       throw err
@@ -105,7 +114,11 @@ export class EvaluationService implements EvaluationEligibility {
       ctx,
     )
 
-    // Respuesta para el tótem: sin datos de identidad
+    return this.toTotemDto(evaluation, false)
+  }
+
+  /** Respuesta para el tótem: sin datos de identidad. `replayed` = eco de un reintento */
+  private toTotemDto(evaluation: EvaluationRecord, replayed: boolean) {
     return {
       id: evaluation.id,
       score: evaluation.score,
@@ -113,6 +126,7 @@ export class EvaluationService implements EvaluationEligibility {
       scoringVersion: evaluation.scoringVersion,
       createdAt: evaluation.createdAt,
       nextStep: this.nextStep(evaluation),
+      replayed,
     }
   }
 

@@ -51,7 +51,10 @@ export default function TestResults({
   onDone,
   saveError = null,
   initialPass = null,
+  onResend,
 }: {
+  /** Reenvía el mismo resultado si el guardado falló por la red (sin repetir el test) */
+  onResend?: () => void
   result: BatteryResult
   onRetry: () => void
   onDone: () => void
@@ -132,9 +135,20 @@ export default function TestResults({
           </div>
 
           {saveError && (
-            <p role="alert" className="mt-5 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
-              <span className="font-700 text-[color:var(--color-no)]">No se pudo guardar el resultado.</span> {saveError} Avisa a tu supervisor.
-            </p>
+            <div role="alert" className="mt-5 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
+              <p>
+                <span className="font-700 text-[color:var(--color-no)]">No se pudo guardar el resultado.</span> {saveError}{" "}
+                {onResend ? "Tu resultado sigue guardado en este equipo: reintenta el envío cuando haya señal." : "Avisa a tu supervisor."}
+              </p>
+              {onResend && (
+                <button
+                  onClick={onResend}
+                  className="mt-3 h-12 w-full rounded-lg border border-[color:var(--color-no)] font-700 uppercase tracking-wide text-white transition-colors hover:bg-[color:var(--color-no)]/20"
+                >
+                  Reintentar envío
+                </button>
+              )}
+            </div>
           )}
 
           {/* Action button */}

@@ -1,0 +1,391 @@
+openapi: 3.1.0
+info:
+  title: SafePass API (tótem y panel HSE)
+  version: 1.1.0
+  description: |
+    Contrato de la API REST del backend Express de SafePass. Fuente única de verdad para la
+    documentación, los mocks y las pruebas de contrato (`tests/api.test.ts`).
+
+    Reglas transversales:
+    - Todas las rutas viven bajo `/api/v1` (versión en la URL desde el primer despliegue).
+    - JSON UTF-8; fechas ISO-8601 en UTC.
+    - Errores con un formato único (`Error`) que incluye `requestId` para rastrearlos en los logs.
+    - Cuerpos con esquema estricto: un campo no declarado responde 400.
+    - Límites de tasa: cabeceras `RateLimit` / `RateLimit-Policy`; al exceder, 429 + `Retry-After`.
+    - Toda respuesta trae `X-Request-Id` (id de correlación); el cliente puede enviar el suyo.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Desarrollo
+
+tags:
+  - name: Autenticación
+  - name: Trabajadores
+  - name: Evaluaciones
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Inicio de sesión del personal (SUPERVISOR / ADMIN)
+      security: []
+      requestBody: { $ref: "#/components/requestBodies/Login" }
+      responses:
+        "200":
+          description: Token de acceso
+          content: { application/json: { schema: { $ref: "#/components/schemas/StaffToken" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidCredentials" }
+        "403": { description: "La ficha no pertenece al personal (STAFF_ONLY)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/totem/session:
+    post:
+      tags: [Autenticación]
+      summary: Abre una sesión de evaluación en un tótem (un solo uso)
+      description: Requiere la clave del dispositivo. El token resultante solo contiene el seudónimo del trabajador.
+      security:
+        - totemKey: []
+      requestBody: { $ref: "#/components/requestBodies/Login" }
+      responses:
+        "201":
+          description: Sesión abierta
+          content: { application/json: { schema: { $ref: "#/components/schemas/TotemSession" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidCredentials" }
+        "403": { description: "Última evaluación requiere autorización del supervisor (SUPERVISOR_AUTHORIZATION_REQUIRED)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/me:
+    get:
+      tags: [Autenticación]
+      summary: Perfil del personal autenticado
+      responses:
+        "200":
+          description: Perfil
+          content: { application/json: { schema: { $ref: "#/components/schemas/StaffUser" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /workers:
+    get:
+      tags: [Trabajadores]
+      summary: Lista paginada de trabajadores (SUPERVISOR / ADMIN)
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - { name: crew, in: query, schema: { $ref: "#/components/schemas/Crew" } }
+        - { name: role, in: query, schema: { $ref: "#/components/schemas/Role" } }
+        - { name: includeInactive, in: query, schema: { type: string, enum: ["true", "false"], default: "false" } }
+      responses:
+        "200":
+          description: Página de trabajadores
+          content: { application/json: { schema: { $ref: "#/components/schemas/WorkerPage" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Trabajadores]
+      summary: Crea un trabajador (ADMIN)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateWorker" } } }
+      responses:
+        "201":
+          description: Creado
+          headers:
+            Location: { description: "/api/v1/workers/{id}", schema: { type: string } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/Worker" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: "Ficha ID o RUT ya registrados", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /workers/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [Trabajadores]
+      summary: Detalle de un trabajador (RUT completo solo para ADMIN)
+      responses:
+        "200": { description: Trabajador, content: { application/json: { schema: { $ref: "#/components/schemas/Worker" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Trabajadores]
+      summary: Actualiza un trabajador (ADMIN); `pin` restablece y desbloquea
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/UpdateWorker" } } }
+      responses:
+        "200": { description: Actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Worker" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Trabajadores]
+      summary: Desactiva un trabajador (ADMIN). No borra datos.
+      responses:
+        "200": { description: Desactivado, content: { application/json: { schema: { $ref: "#/components/schemas/Worker" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /evaluations:
+    post:
+      tags: [Evaluaciones]
+      summary: Registra la evaluación de la sesión del tótem (idempotente por sesión)
+      description: |
+        El servidor calcula puntaje y dictamen a partir de las métricas crudas. Reenviar con la
+        misma sesión es inofensivo: devuelve 200 con la misma evaluación (`replayed: true`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateEvaluation" } } }
+      responses:
+        "201":
+          description: Registrada
+          headers:
+            Location: { description: "/api/v1/evaluations/{id}", schema: { type: string } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/TotemEvaluation" } } }
+        "200":
+          description: Eco de un reintento con la misma sesión
+          content: { application/json: { schema: { $ref: "#/components/schemas/TotemEvaluation" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    get:
+      tags: [Evaluaciones]
+      summary: Lista paginada de evaluaciones (SUPERVISOR / ADMIN)
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/TrafficLight" } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: totemId, in: query, schema: { type: string, format: uuid } }
+        - { name: workerId, in: query, schema: { type: string, format: uuid } }
+        - { name: includeVoided, in: query, schema: { type: string, enum: ["true", "false"], default: "false" } }
+      responses:
+        "200": { description: Página de evaluaciones, content: { application/json: { schema: { $ref: "#/components/schemas/EvaluationPage" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /evaluations/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      tags: [Evaluaciones]
+      summary: Detalle de una evaluación (incluye la observación descifrada)
+      responses:
+        "200": { description: Evaluación, content: { application/json: { schema: { $ref: "#/components/schemas/StaffEvaluation" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Evaluaciones]
+      summary: Revisión del supervisor (decisión, observación y ajuste justificado del dictamen)
+      description: Nadie revisa su propia evaluación (403 SELF_REVIEW_NOT_ALLOWED).
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ReviewEvaluation" } } }
+      responses:
+        "200": { description: Revisada, content: { application/json: { schema: { $ref: "#/components/schemas/StaffEvaluation" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: "La evaluación está anulada (EVALUATION_VOIDED)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    delete:
+      tags: [Evaluaciones]
+      summary: Anula una evaluación con motivo (ADMIN). No borra el registro.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/VoidEvaluation" } } }
+      responses:
+        "200": { description: Anulada, content: { application/json: { schema: { $ref: "#/components/schemas/StaffEvaluation" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    totemKey: { type: apiKey, in: header, name: X-Totem-Key }
+
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, maximum: 10000, default: 1 } }
+    PageSize: { name: pageSize, in: query, description: "Tope impuesto por el servidor", schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+
+  requestBodies:
+    Login:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [fichaId, pin]
+            properties:
+              fichaId: { type: string, pattern: "^[A-Za-z]{3}-\\d{4}$", example: TRB-0512 }
+              pin: { type: string, pattern: "^\\d{6}$" }
+
+  responses:
+    BadRequest: { description: "Validación fallida (VALIDATION_ERROR / MALFORMED_JSON)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unauthorized: { description: "Sin token o token inválido (INVALID_SESSION)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    InvalidCredentials: { description: "Ficha o PIN incorrectos; misma respuesta para cuenta inexistente, bloqueada o deshabilitada (INVALID_CREDENTIALS)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Forbidden: { description: "Rol insuficiente o regla de negocio (FORBIDDEN, SELF_REVIEW_NOT_ALLOWED…)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    NotFound: { description: "No existe (NOT_FOUND)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    TooManyRequests:
+      description: "Límite de tasa o descanso preventivo (RATE_LIMITED / RETEST_COOLDOWN)"
+      headers:
+        Retry-After: { schema: { type: integer }, description: Segundos de espera }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: "Código de máquina", example: VALIDATION_ERROR }
+            message: { type: string, description: "Mensaje para la persona" }
+            details: { description: "Detalle accionable (opcional)" }
+            requestId: { type: string, description: "Id de correlación para buscar en los logs" }
+    Role: { type: string, enum: [OPERATOR, SUPERVISOR, ADMIN] }
+    Crew: { type: string, enum: ["7x7", "4x3"] }
+    TrafficLight: { type: string, enum: [VERDE, AMARILLO, ROJO] }
+    SupervisorDecision: { type: string, enum: [AUTORIZAR_REEVALUACION, REASIGNACION_TAREA, DERIVACION_POLICLINICO, SUSPENSION_TURNO] }
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+    StaffUser:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fichaId: { type: string }
+        fullName: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+    StaffToken:
+      type: object
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer, description: Segundos }
+        user: { $ref: "#/components/schemas/StaffUser" }
+    TotemSession:
+      type: object
+      properties:
+        sessionToken: { type: string }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer }
+        fichaId: { type: string }
+    Worker:
+      type: object
+      description: "Traje público del trabajador: nunca incluye hash de PIN, seudónimo ni índice ciego del RUT"
+      properties:
+        id: { type: string, format: uuid }
+        fichaId: { type: string }
+        rut: { type: string, description: "Completo para ADMIN, enmascarado para SUPERVISOR" }
+        fullName: { type: string }
+        position: { type: string }
+        company: { type: [string, "null"] }
+        crew: { $ref: "#/components/schemas/Crew" }
+        role: { $ref: "#/components/schemas/Role" }
+        active: { type: boolean }
+    WorkerPage:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Worker" } }
+        meta: { $ref: "#/components/schemas/Pagination" }
+    CreateWorker:
+      type: object
+      additionalProperties: false
+      required: [fichaId, rut, fullName, position, crew, pin]
+      properties:
+        fichaId: { type: string, pattern: "^[A-Za-z]{3}-\\d{4}$" }
+        rut: { type: string, description: "RUT chileno válido" }
+        fullName: { type: string, minLength: 3, maxLength: 120 }
+        position: { type: string, minLength: 2, maxLength: 80 }
+        company: { type: string, minLength: 2, maxLength: 120 }
+        crew: { $ref: "#/components/schemas/Crew" }
+        role: { $ref: "#/components/schemas/Role" }
+        pin: { type: string, pattern: "^\\d{6}$", description: "Se rechazan PIN predecibles (123456, 111111…)" }
+    UpdateWorker:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        fullName: { type: string, minLength: 3, maxLength: 120 }
+        position: { type: string, minLength: 2, maxLength: 80 }
+        company: { type: [string, "null"] }
+        crew: { $ref: "#/components/schemas/Crew" }
+        role: { $ref: "#/components/schemas/Role" }
+        active: { type: boolean }
+        pin: { type: string, pattern: "^\\d{6}$" }
+    CreateEvaluation:
+      type: object
+      additionalProperties: false
+      description: "Métricas crudas PVT-B. El intervalo entre estímulos es de 2 a 10 s: totalStimuli debe estar entre durationSeconds/10 y durationSeconds/2."
+      required: [meanLatencyMs, medianReactionTimeMs, omissions, falseStarts, totalStimuli, durationSeconds]
+      properties:
+        meanLatencyMs: { type: integer, minimum: 100, maximum: 3000 }
+        medianReactionTimeMs: { type: integer, minimum: 100, maximum: 3000 }
+        omissions: { type: integer, minimum: 0, maximum: 500 }
+        falseStarts: { type: integer, minimum: 0, maximum: 500 }
+        totalStimuli: { type: integer, minimum: 1, maximum: 500 }
+        durationSeconds: { type: integer, minimum: 30, maximum: 900 }
+    TotemEvaluation:
+      type: object
+      description: "Respuesta para el tótem: sin datos de identidad"
+      properties:
+        id: { type: string, format: uuid }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        status: { $ref: "#/components/schemas/TrafficLight" }
+        scoringVersion: { type: string }
+        createdAt: { type: string, format: date-time }
+        nextStep: { type: object, properties: { action: { type: string, example: INGRESO_AUTORIZADO } } }
+        replayed: { type: boolean, description: "true si es el eco de un reintento con la misma sesión" }
+    StaffEvaluation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        score: { type: integer }
+        status: { $ref: "#/components/schemas/TrafficLight" }
+        computedStatus: { $ref: "#/components/schemas/TrafficLight" }
+        createdAt: { type: string, format: date-time }
+        worker: { type: object, properties: { id: { type: string }, fichaId: { type: string }, fullName: { type: string } } }
+        review: { type: [object, "null"], properties: { decision: { $ref: "#/components/schemas/SupervisorDecision" }, note: { type: [string, "null"] } } }
+    EvaluationPage:
+      type: object
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/StaffEvaluation" } }
+        meta: { $ref: "#/components/schemas/Pagination" }
+    ReviewEvaluation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: "Cambiar `status` exige `note`"
+      properties:
+        status: { $ref: "#/components/schemas/TrafficLight" }
+        decision: { $ref: "#/components/schemas/SupervisorDecision" }
+        note: { type: string, minLength: 3, maxLength: 1000 }
+    VoidEvaluation:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 10, maxLength: 500 }

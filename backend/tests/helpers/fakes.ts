@@ -122,6 +122,11 @@ export class InMemoryEvaluations implements EvaluationRepository {
     private readonly now: () => Date,
   ) {}
 
+  async findBySessionId(sessionId: string) {
+    const row = [...this.rows.values()].find((e) => e.sessionId === sessionId)
+    return row ? { ...row } : null
+  }
+
   async create(data: NewEvaluation) {
     if ([...this.rows.values()].some((e) => e.sessionId === data.sessionId)) {
       throw new UniqueConstraintError(["session_id"])

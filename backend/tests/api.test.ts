@@ -142,6 +142,7 @@ describe("API SafePass", () => {
         .set(auth)
         .send({ fichaId: "trb-0777", rut, fullName: "Ana Pérez", position: "Operadora CAEX", crew: "4x3", pin: "480271" })
       expect(created.status).toBe(201)
+      expect(created.headers.location).toBe(`/api/v1/workers/${created.body.id}`)
       expect(created.body).toMatchObject({ fichaId: "TRB-0777", crew: "4x3", role: "OPERATOR", active: true })
       expect(created.body).not.toHaveProperty("pinHash")
 
@@ -265,13 +266,20 @@ describe("API SafePass", () => {
       expect(res.status).toBe(400)
     })
 
-    it("una sesión de tótem registra una sola evaluación", async () => {
+    it("una sesión registra una sola evaluación y el reintento recibe el eco (idempotencia)", async () => {
       const session = await t.totemSession(totem.key, operator.fichaId, operator.pin)
       const auth = { Authorization: `Bearer ${session.body.sessionToken}` }
-      expect((await request(t.app).post("/api/v1/evaluations").set(auth).send(METRICS.verde)).status).toBe(201)
-      const replay = await request(t.app).post("/api/v1/evaluations").set(auth).send(METRICS.verde)
-      expect(replay.status).toBe(409)
-      expect(replay.body.error.code).toBe("SESSION_ALREADY_USED")
+      const first = await request(t.app).post("/api/v1/evaluations").set(auth).send(METRICS.rojo)
+      expect(first.status).toBe(201)
+      expect(first.headers.location).toBe(`/api/v1/evaluations/${first.body.id}`)
+      expect(first.body.replayed).toBe(false)
+
+      // Reintento de la misma sesión (respuesta perdida por la red): 200 con la misma evaluación,
+      // aunque el ROJO ya bloquee nuevas evaluaciones
+      const replay = await request(t.app).post("/api/v1/evaluations").set(auth).send(METRICS.rojo)
+      expect(replay.status).toBe(200)
+      expect(replay.body).toMatchObject({ id: first.body.id, status: "ROJO", replayed: true })
+      expect(t.repos.evaluations.rows.size).toBe(1)
     })
 
     it("cambiar el dictamen exige observación y conserva el dictamen del algoritmo", async () => {

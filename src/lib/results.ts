@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { breakdownFromResult, type BatteryResult, type Evaluation, type Status } from "./data"
-import { describeError, supabase } from "./supabase"
+import { describeError, isTransientError, supabase } from "./supabase"
 
 // Resultados de las evaluaciones en Supabase (tabla evaluations). El servidor fija
 // la hora de finalización y aplica las reglas de re-evaluación al insertar.
@@ -48,14 +48,32 @@ export async function startEvaluation(): Promise<string> {
   return data
 }
 
-/** Registra la evaluación terminada de la sesión; puntaje, estado y hora los fija el servidor */
+/** Esperas entre reintentos del envío (crecientes): ~11 s en total antes de rendirse */
+const SUBMIT_RETRY_DELAYS_MS = [1_000, 3_000, 7_000]
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Registra la evaluación terminada de la sesión; puntaje, estado y hora los fija el servidor.
+ * El envío es idempotente por sesión (el servidor devuelve la misma evaluación si ya llegó),
+ * así que ante un corte de red se reintenta solo con espera creciente.
+ */
 export async function recordResult(sessionId: string, result: BatteryResult): Promise<StoredResult> {
-  const { data, error } = await supabase.rpc("submit_evaluation", {
-    p_session_id: sessionId,
-    p_breakdown: result.breakdown,
-  })
-  if (error || !data) throw new Error(describeError(error))
-  return toResult(data as EvaluationRow)
+  let lastError: unknown = null
+  for (let attempt = 0; attempt <= SUBMIT_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const { data, error } = await supabase.rpc("submit_evaluation", {
+        p_session_id: sessionId,
+        p_breakdown: result.breakdown,
+      })
+      if (!error && data) return toResult(data as EvaluationRow)
+      lastError = error
+    } catch (err) {
+      lastError = err
+    }
+    if (!isTransientError(lastError) || attempt === SUBMIT_RETRY_DELAYS_MS.length) break
+    await sleep(SUBMIT_RETRY_DELAYS_MS[attempt])
+  }
+  throw new Error(describeError(lastError))
 }
 
 /** Historial de un trabajador, del más antiguo al más reciente */

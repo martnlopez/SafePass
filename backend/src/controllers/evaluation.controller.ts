@@ -16,7 +16,8 @@ export class EvaluationController {
   create = async (req: Request, res: Response) => {
     const dto = CreateEvaluationBody.parse(req.body)
     const result = await this.evaluations.submit(requireTotemSession(req), dto, requestContext(req))
-    res.status(201).json(result)
+    // 201 + Location la primera vez; 200 con la misma evaluación si es un reintento (eco)
+    res.status(result.replayed ? 200 : 201).location(`${req.baseUrl}/evaluations/${result.id}`).json(result)
   }
 
   /** GET /api/v1/evaluations?status=ROJO&from=…&to=…&page=1&pageSize=20 */

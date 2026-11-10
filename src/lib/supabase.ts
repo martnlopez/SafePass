@@ -13,7 +13,18 @@ if (!url || !key) {
   )
 }
 
+// Timeout explícito en toda llamada remota (prompt de arquitectura §7.6): con mala señal
+// una petición colgada no deja al trabajador esperando indefinidamente.
+const REQUEST_TIMEOUT_MS = 15_000
+
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const signal = init?.signal && "any" in AbortSignal ? AbortSignal.any([init.signal, timeout]) : (init?.signal ?? timeout)
+  return fetch(input, { ...init, signal })
+}
+
 export const supabase = createClient(url, key, {
+  global: { fetch: fetchWithTimeout },
   auth: {
     // Dispositivo compartido: la sesión vive solo en memoria y se pierde al recargar
     // o cerrar la pestaña, así nadie queda con la sesión de otro trabajador abierta.
@@ -22,6 +33,15 @@ export const supabase = createClient(url, key, {
     detectSessionInUrl: false,
   },
 })
+
+/**
+ * Error transitorio de red (sin señal, timeout, corte a mitad): reintentar es razonable.
+ * Los errores de reglas del servidor (códigos en MAYÚSCULAS) no se reintentan.
+ */
+export function isTransientError(error: unknown): boolean {
+  const raw = (error as { message?: string; name?: string } | null) ?? {}
+  return /fetch|network|timed? ?out|timeout|abort/i.test(`${raw.name ?? ""} ${raw.message ?? ""}`)
+}
 
 /** Mensaje legible a partir de un error de Supabase/PostgREST o de las reglas del servidor */
 export function describeError(error: unknown): string {
@@ -45,6 +65,7 @@ export function describeError(error: unknown): string {
     NOT_ALLOWED: "No tienes permiso para realizar esta acción.",
   }
   if (KNOWN[code]) return KNOWN[code]
+  if (/timed? ?out|timeout|abort/i.test(code)) return "El servidor tardó demasiado en responder. Revisa la señal e inténtalo de nuevo."
   if (/fetch|network|Failed to fetch/i.test(code)) return "Sin conexión con el servidor. Revisa la red e inténtalo de nuevo."
   // Errores desconocidos: mensaje genérico (no exponer nombres de tablas ni detalles internos)
   return "Ocurrió un error inesperado. Inténtalo de nuevo o avisa a tu supervisor."

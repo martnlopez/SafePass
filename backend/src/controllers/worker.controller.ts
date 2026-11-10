@@ -11,7 +11,7 @@ export class WorkerController {
   create = async (req: Request, res: Response) => {
     const dto = CreateWorkerBody.parse(req.body)
     const worker = await this.workers.create(dto, requireStaff(req), requestContext(req))
-    res.status(201).location(`${req.baseUrl}/${worker.id}`).json(worker)
+    res.status(201).location(`${req.baseUrl}/workers/${worker.id}`).json(worker)
   }
 
   /** GET /api/v1/workers?crew=7x7&page=1&pageSize=20 */

@@ -52,5 +52,9 @@ Reglas que aplica el servidor, aunque se modifique el frontend:
   se desactivó, si hubo una decisión posterior a su emisión o si una evaluación posterior no fue APTA.
 - Ningún supervisor puede registrar decisiones sobre su propia evaluación.
 
+Documentación técnica: [contrato de la API y tabla de errores](./docs/CONTRATO-API.md),
+[decisiones de arquitectura](./docs/DECISIONES.md) y [OpenAPI del backend](./backend/openapi.yaml).
+Cada push a `main` corre la integración continua (`.github/workflows/ci.yml`).
+
 Pendiente en el panel de Supabase (no se versiona en el repo): desactivar el registro público,
 activar CAPTCHA y límites de inicio de sesión, y la protección contra contraseñas filtradas.
