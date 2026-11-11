@@ -22,7 +22,7 @@ services:
       - key: LOG_LEVEL
         value: info
 
-      # Dirección de la app en Vercel (sin barra final), p. ej. https://safepass.vercel.app
+      # Dirección de la app en Cloudflare Pages (sin barra final), p. ej. https://safepass.pages.dev
       - key: CORS_ORIGINS
         sync: false
       # Mismo proyecto Supabase que la app (clave PUBLICABLE, nunca la secreta)
