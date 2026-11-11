@@ -3,6 +3,7 @@ import Logo from "./Logo"
 import CameraScanner from "./CameraScanner"
 import { signIn, type WorkerProfile } from "../lib/auth"
 import { formatFicha } from "../lib/data"
+import { Turnstile, captchaEnabled, type TurnstileHandle } from "./Turnstile"
 
 const PIN_LENGTH = 6
 
@@ -73,6 +74,8 @@ export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProf
   // Mensaje de error del login (null = sin error)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const captchaRef = useRef<TurnstileHandle>(null)
   const fichaRef = useRef<HTMLInputElement>(null)
 
   // Puesto con teclado físico: foco inicial en la ficha (en táctil no, para no abrir el teclado virtual)
@@ -101,7 +104,8 @@ export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProf
   }, [forgot])
 
   const fichaOk = /^TRB-\d{3,4}$/i.test(ficha.trim())
-  const ready = fichaOk && pin.length === PIN_LENGTH
+  // Con CAPTCHA activo, el botón espera el token de la verificación de seguridad
+  const ready = fichaOk && pin.length === PIN_LENGTH && (!captchaEnabled || captchaToken !== null)
 
   // Escaneo de credencial (móvil/tablet; oculto en desktop vía `lg:hidden`):
   // abre un visor con la cámara en vivo (getUserMedia) y extrae la Ficha ID del QR.
@@ -128,7 +132,7 @@ export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProf
     setBusy(true)
     setError(null)
     try {
-      const result = await signIn(ficha.trim().toUpperCase(), pin)
+      const result = await signIn(ficha.trim().toUpperCase(), pin, captchaToken ?? undefined)
       if (!result.ok) {
         setError(result.message)
         setPin("")
@@ -139,6 +143,8 @@ export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProf
       setError("No se pudo ingresar. Inténtalo de nuevo.")
       setPin("")
     } finally {
+      // El token del CAPTCHA es de un solo uso: se pide otro para el próximo intento
+      captchaRef.current?.reset()
       setBusy(false)
     }
   }
@@ -320,6 +326,8 @@ export default function WorkerLogin({ onLogin }: { onLogin: (profile: WorkerProf
               <p className="font-mono text-[11px] text-[color:var(--color-fog)]">Toca para activar la cámara</p>
             </div>
           </button>
+
+          <Turnstile ref={captchaRef} onToken={setCaptchaToken} onError={setError} />
 
           <button
             disabled={!ready || busy}

@@ -22,9 +22,20 @@ export type SignInResult =
   | { ok: true; profile: WorkerProfile }
   | { ok: false; reason: "credentials" | "inactive" | "network"; message: string }
 
-export async function signIn(fichaId: string, pin: string): Promise<SignInResult> {
-  const { data, error } = await supabase.auth.signInWithPassword({ email: fichaToEmail(fichaId), password: pin })
+/**
+ * @param captchaToken token de Cloudflare Turnstile; obligatorio cuando el CAPTCHA está activo
+ *   en Supabase (Authentication → Attack Protection). Supabase lo valida en el servidor.
+ */
+export async function signIn(fichaId: string, pin: string, captchaToken?: string): Promise<SignInResult> {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: fichaToEmail(fichaId),
+    password: pin,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
+  })
   if (error || !data.user) {
+    if (/captcha/i.test(error?.message ?? "")) {
+      return { ok: false, reason: "network", message: "La verificación de seguridad falló o venció. Espera un momento e inténtalo de nuevo." }
+    }
     const network = /fetch|network/i.test(error?.message ?? "")
     return network
       ? { ok: false, reason: "network", message: describeError(error) }

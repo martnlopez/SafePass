@@ -11,14 +11,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 // cabecera HTTP desde el hosting.
 const DEFAULT_API_URL = 'http://localhost:3000/api/v1'
 
-function contentSecurityPolicy(supabaseUrl, apiUrl) {
+function contentSecurityPolicy(supabaseUrl, apiUrl, turnstileSiteKey) {
   const supabase = supabaseUrl ? new URL(supabaseUrl) : null
   // La app llama a la API SafePass (backend) y, para login y paneles en vivo, a Supabase
   const api = new URL(apiUrl || DEFAULT_API_URL)
   const connect = [api.origin, supabase ? `https://${supabase.host} wss://${supabase.host}` : ''].join(' ').trim()
+  // CAPTCHA (Cloudflare Turnstile): solo se abre la CSP si está configurado
+  const captcha = turnstileSiteKey ? 'https://challenges.cloudflare.com' : ''
   const policy = [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src 'self' ${captcha}`.trim(),
+    ...(captcha ? [`frame-src ${captcha}`] : []),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
@@ -46,7 +49,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      contentSecurityPolicy(env.VITE_SUPABASE_URL, env.VITE_API_URL),
+      contentSecurityPolicy(env.VITE_SUPABASE_URL, env.VITE_API_URL, env.VITE_TURNSTILE_SITE_KEY),
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {
