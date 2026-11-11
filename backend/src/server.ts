@@ -1,6 +1,6 @@
 import { createApp } from "./app.js"
 import { loadConfig, type AppConfig } from "./config/env.js"
-import { buildContainer, createAppDataRepository, createPrismaRepositories } from "./container.js"
+import { buildContainer, createAppDataRepository, createPrismaRepositories, createUnavailableRepositories } from "./container.js"
 import { createLogger } from "./lib/logger.js"
 import { createPrismaClient } from "./lib/prisma.js"
 
@@ -13,10 +13,12 @@ try {
 }
 
 const logger = createLogger(config.LOG_LEVEL, config.NODE_ENV === "development")
-const prisma = createPrismaClient(config.DATABASE_URL)
+const prisma = config.DATABASE_URL ? createPrismaClient(config.DATABASE_URL) : null
+if (!prisma) logger.warn("DATABASE_URL sin configurar: las rutas del tótem y del panel responden 503")
 const appData = createAppDataRepository(config)
 if (!appData) logger.warn("SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY sin configurar: la API de la app (/api/v1/app) responde 503")
-const container = buildContainer({ config, logger, repositories: createPrismaRepositories(prisma), appData })
+const repositories = prisma ? createPrismaRepositories(prisma) : createUnavailableRepositories()
+const container = buildContainer({ config, logger, repositories, appData })
 const app = createApp(container)
 
 const server = app.listen(config.PORT, () => {
@@ -35,7 +37,7 @@ async function shutdown(signal: string) {
   }, 10_000)
   timer.unref()
   server.close(async () => {
-    await prisma.$disconnect()
+    await prisma?.$disconnect()
     logger.info("Servidor detenido")
     process.exit(0)
   })

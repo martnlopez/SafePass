@@ -18,6 +18,10 @@ if (!name || name.length < 3 || name.length > 80) {
 }
 
 const config = loadConfig()
+if (!config.DATABASE_URL) {
+  console.error("Este script necesita DATABASE_URL (la base del tótem y del panel).")
+  process.exit(1)
+}
 const prisma = createPrismaClient(config.DATABASE_URL)
 
 try {

@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it } from "vitest"
 import { DataRuleError, UpstreamUnavailableError } from "../src/errors/app-error.js"
 import type { AppDataRepository } from "../src/repositories/app-data.repository.js"
 import type { AppDecision, AppEvaluation, AppPass, BatteryEntry } from "../src/types/app.js"
-import { createTestApp } from "./helpers/test-app.js"
+import { pino } from "pino"
+import { createApp } from "../src/app.js"
+import { buildContainer, createUnavailableRepositories } from "../src/container.js"
+import { createTestApp, testConfig } from "./helpers/test-app.js"
 
 /**
  * Pruebas de contrato de /api/v1/app. Supabase se reemplaza por un falso que reproduce
@@ -235,5 +238,33 @@ describe("API de la app (/api/v1/app)", () => {
     const res = await request(off.app).get("/api/v1/app/me").set(as("tok-worker"))
     expect(res.status).toBe(503)
     expect(res.body.error.code).toBe("APP_API_DISABLED")
+  })
+})
+
+describe("servidor sin base propia (solo API de la app)", () => {
+  const app = createApp(
+    buildContainer({
+      config: testConfig(),
+      logger: pino({ level: "silent" }),
+      repositories: createUnavailableRepositories(),
+      appData: new FakeSupabase(),
+    }),
+  )
+
+  it("la API de la app funciona", async () => {
+    const res = await request(app).get("/api/v1/app/me").set({ Authorization: "Bearer tok-worker" })
+    expect(res.status).toBe(200)
+  })
+
+  it("las rutas del tótem y del panel responden 503 sin filtrar detalles", async () => {
+    const login = await request(app).post("/api/v1/auth/login").send({ fichaId: "TRB-0512", pin: "480271" })
+    expect(login.status).toBe(503)
+    expect(login.body.error.code).toBe("DATABASE_NOT_CONFIGURED")
+  })
+
+  it("/health/ready informa la base como deshabilitada, no caída", async () => {
+    const res = await request(app).get("/health/ready")
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ status: "ok", database: "disabled" })
   })
 })

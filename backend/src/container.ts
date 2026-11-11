@@ -3,6 +3,7 @@ import { AppController } from "./controllers/app.controller.js"
 import { AuthController } from "./controllers/auth.controller.js"
 import { SupabaseAppDataRepository, type AppDataRepository } from "./repositories/app-data.repository.js"
 import { AppService } from "./services/app.service.js"
+import { unavailableRepository } from "./repositories/unavailable.repository.js"
 import { EvaluationController } from "./controllers/evaluation.controller.js"
 import { HealthController } from "./controllers/health.controller.js"
 import { WorkerController } from "./controllers/worker.controller.js"
@@ -38,6 +39,17 @@ export function createPrismaRepositories(db: PrismaClient): Repositories {
     totems: new PrismaTotemRepository(db),
     auditLogs: new PrismaAuditLogRepository(db),
     health: new PrismaHealthRepository(db),
+  }
+}
+
+/** Sin DATABASE_URL: las rutas del tótem y del panel responden 503 (DATABASE_NOT_CONFIGURED) */
+export function createUnavailableRepositories(): Repositories {
+  return {
+    workers: unavailableRepository<WorkerRepository>(),
+    evaluations: unavailableRepository<EvaluationRepository>(),
+    totems: unavailableRepository<TotemRepository>(),
+    auditLogs: unavailableRepository<AuditLogRepository>(),
+    health: unavailableRepository<HealthRepository>(),
   }
 }
 

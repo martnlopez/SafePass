@@ -26,7 +26,12 @@ const EnvSchema = z
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 
-    DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, "DATABASE_URL debe ser una URL de PostgreSQL"),
+    // Base propia del tótem y del panel. Opcional: sin ella esas rutas responden 503 y el
+    // servidor atiende solo la API de la app (/api/v1/app), que trabaja sobre Supabase.
+    DATABASE_URL: z
+      .string()
+      .regex(/^postgres(ql)?:\/\//, "DATABASE_URL debe ser una URL de PostgreSQL")
+      .optional(),
 
     CORS_ORIGINS: csv,
     TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
@@ -68,6 +73,16 @@ const EnvSchema = z
     if (env.FIELD_ENCRYPTION_KEY === env.BLIND_INDEX_KEY) {
       ctx.addIssue({ code: "custom", path: ["BLIND_INDEX_KEY"], message: "Debe ser distinta de FIELD_ENCRYPTION_KEY" })
     }
+    if (Boolean(env.SUPABASE_URL) !== Boolean(env.SUPABASE_PUBLISHABLE_KEY)) {
+      ctx.addIssue({ code: "custom", path: ["SUPABASE_URL"], message: "SUPABASE_URL y SUPABASE_PUBLISHABLE_KEY van juntas" })
+    }
+    if (!env.DATABASE_URL && !env.SUPABASE_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["DATABASE_URL"],
+        message: "Configura DATABASE_URL (tótem y panel) o SUPABASE_URL + SUPABASE_PUBLISHABLE_KEY (API de la app)",
+      })
+    }
     if (env.NODE_ENV === "production") {
       if (env.CORS_ORIGINS.length === 0 || env.CORS_ORIGINS.includes("*")) {
         ctx.addIssue({ code: "custom", path: ["CORS_ORIGINS"], message: "En producción debe listar orígenes explícitos (sin *)" })
@@ -79,7 +94,12 @@ export type AppConfig = z.infer<typeof EnvSchema>
 
 /** Valida las variables de entorno. Nunca imprime valores, solo nombres y motivos. */
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
-  const parsed = EnvSchema.safeParse(source)
+  // Una variable opcional vacía ("DATABASE_URL=") equivale a no definirla
+  const cleaned = { ...source }
+  for (const name of ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"]) {
+    if (cleaned[name]?.trim() === "") delete cleaned[name]
+  }
+  const parsed = EnvSchema.safeParse(cleaned)
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "(env)"}: ${i.message}`)
     throw new Error(`Configuración inválida. Revisa tu archivo .env:\n${lines.join("\n")}`)

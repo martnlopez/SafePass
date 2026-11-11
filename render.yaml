@@ -1,0 +1,43 @@
+# Backend SafePass en Render (render.com → New → Blueprint → este repositorio).
+# Los secretos no están aquí: Render genera los marcados con generateValue y pide
+# en su panel los marcados con sync: false. Guía: docs/PUBLICAR.md
+services:
+  - type: web
+    name: safepass-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    # --include=dev: TypeScript y Prisma son dependencias de desarrollo y se necesitan para compilar
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      # Render pone un proxy delante: 1 salto, para que los límites por IP vean al cliente real
+      - key: TRUST_PROXY
+        value: 1
+      - key: LOG_LEVEL
+        value: info
+
+      # Dirección de la app en Vercel (sin barra final), p. ej. https://safepass.vercel.app
+      - key: CORS_ORIGINS
+        sync: false
+      # Mismo proyecto Supabase que la app (clave PUBLICABLE, nunca la secreta)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+
+      # Secretos generados por Render (256 bits en base64, distintos entre sí)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PIN_PEPPER
+        generateValue: true
+      - key: FIELD_ENCRYPTION_KEY
+        generateValue: true
+      - key: BLIND_INDEX_KEY
+        generateValue: true
+      # DATABASE_URL no se define: el backend atiende solo la API de la app (Supabase)

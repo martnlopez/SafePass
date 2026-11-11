@@ -30,6 +30,10 @@ if (!env.success) {
   process.exit(1)
 }
 
+if (!config.DATABASE_URL) {
+  console.error("Este script necesita DATABASE_URL (la base del tótem y del panel).")
+  process.exit(1)
+}
 const prisma = createPrismaClient(config.DATABASE_URL)
 const workers = new PrismaWorkerRepository(prisma)
 const audit = new PrismaAuditLogRepository(prisma)
