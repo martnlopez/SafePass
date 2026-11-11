@@ -4,6 +4,7 @@ import request from "supertest"
 import { createApp } from "../../src/app.js"
 import { loadConfig } from "../../src/config/env.js"
 import { buildContainer } from "../../src/container.js"
+import type { AppDataRepository } from "../../src/repositories/app-data.repository.js"
 import { FieldCipher, generateDeviceSecret, sha256Hex } from "../../src/lib/crypto.js"
 import { isWeakPin, PinHasher } from "../../src/lib/pin.js"
 import { computeCheckDigit, normalizeRut } from "../../src/lib/rut.js"
@@ -43,7 +44,7 @@ export function randomRut(): string {
   return `${body}-${computeCheckDigit(body)}`
 }
 
-export function createTestApp(overrides: Record<string, string> = {}) {
+export function createTestApp(overrides: Record<string, string> = {}, options: { appData?: AppDataRepository } = {}) {
   const config = testConfig(overrides)
   const clock = { now: new Date("2026-09-28T08:00:00Z") }
   const now = () => new Date(clock.now)
@@ -57,6 +58,7 @@ export function createTestApp(overrides: Record<string, string> = {}) {
     config,
     logger: pino({ level: "silent" }),
     repositories: { workers, totems, evaluations, auditLogs: audit, health: healthyDb },
+    appData: options.appData ?? null,
     now,
   })
   const app = createApp(container)

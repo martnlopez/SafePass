@@ -2,7 +2,30 @@
 
 Cada decisión: contexto, criterios, elegido y **"reconsideraríamos si…"** (condiciones medibles).
 
-## D1 · La app habla directo con Supabase (no a través del backend Express)
+## D7 · Una sola API: la app pasa por el backend (reemplaza a D1) — 2026-11-10
+
+**Contexto.** El prompt de arquitectura pide una API para todos los clientes (§8.3) y una sola
+fuente de verdad (§1). Con D1, la app y los tótems usaban contratos y bases distintas.
+
+| Criterio | App → Supabase directo (D1) | App → API SafePass → Supabase (D7) |
+|---|---|---|
+| Contrato para web, tótem e integradores | Dos | Uno (`/api/v1`, OpenAPI) |
+| Dónde viven las reglas | Base (RLS + RPC) | **La misma base**: el backend reenvía el token del usuario y no duplica reglas |
+| Formato de error, límites de tasa, correlación (`X-Request-Id`) | Los de Supabase | Los del contrato propio |
+| Operación | Solo Supabase | Supabase + un servidor Node (más piezas) |
+| Latencia | 1 salto | 2 saltos |
+
+**Elegido:** la app usa `/api/v1/app/*` para el perfil, el test, los pases y las decisiones. El
+backend verifica el token de Supabase Auth y llama a Supabase **con ese mismo token** (patrón BFF,
+§8.4: adapta y orquesta, no decide). Sigue directo a Supabase solo lo que la API no puede dar:
+el **inicio de sesión** (Supabase Auth es el proveedor de identidad) y los **paneles en vivo del
+supervisor** (Realtime: el backend no tiene canal de empuje).
+**Reconsideraríamos si:** el doble salto se vuelve un problema de latencia medido; o se agrega un
+canal en vivo al backend (SSE/WebSocket), en cuyo caso los paneles también pasarían por la API.
+**Siguiente cuota:** llevar el flujo del tótem (`/auth/totem/session`, `/evaluations`) a la misma
+base de Supabase y retirar el modelo `VERDE/AMARILLO/ROJO` (deuda de D1).
+
+## D1 · La app habla directo con Supabase (reemplazada por D7)
 
 **Contexto (2026-11-09).** Equipo de 1–3 personas, sin plataforma de operación propia. La app
 necesita autenticación, datos con permisos por fila y avisos en tiempo real.

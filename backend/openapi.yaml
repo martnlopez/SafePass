@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SafePass API (tótem y panel HSE)
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Contrato de la API REST del backend Express de SafePass. Fuente única de verdad para la
     documentación, los mocks y las pruebas de contrato (`tests/api.test.ts`).
@@ -21,6 +21,8 @@ tags:
   - name: Autenticación
   - name: Trabajadores
   - name: Evaluaciones
+  - name: App
+    description: API de la app web/PWA. Opera en Supabase con la identidad del usuario (RLS y reglas en la base).
 
 security:
   - bearerAuth: []
@@ -213,10 +215,140 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # ── API de la app (token de Supabase Auth del propio usuario) ──
+  /app/me:
+    get:
+      tags: [App]
+      summary: Perfil del usuario autenticado (403 si la cuenta no está habilitada)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Perfil, content: { application/json: { schema: { $ref: "#/components/schemas/AppProfile" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /app/me/evaluations:
+    get:
+      tags: [App]
+      summary: Historial propio (del más antiguo al más reciente, máx. 200)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Historial, content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: "#/components/schemas/AppEvaluation" } } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /app/me/evaluations/latest:
+    get:
+      tags: [App]
+      summary: Último resultado propio (`data` null si no hay)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Último resultado, content: { application/json: { schema: { type: object, properties: { data: { oneOf: [{ $ref: "#/components/schemas/AppEvaluation" }, { type: "null" }] } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /app/me/decisions/latest:
+    get:
+      tags: [App]
+      summary: Última decisión sobre el propio trabajador (`data` null si no hay)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Decisión, content: { application/json: { schema: { type: object, properties: { data: { oneOf: [{ $ref: "#/components/schemas/AppDecision" }, { type: "null" }] } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /app/me/access-passes/current:
+    get:
+      tags: [App]
+      summary: Pase vigente propio (`data` null si no hay)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Pase, content: { application/json: { schema: { type: object, properties: { data: { oneOf: [{ $ref: "#/components/schemas/AppPass" }, { type: "null" }] } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /app/evaluation-sessions:
+    post:
+      tags: [App]
+      summary: Abre la sesión del test (aplica descansos y autorizaciones)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "201":
+          description: Sesión abierta
+          headers: { Location: { schema: { type: string } } }
+          content: { application/json: { schema: { type: object, properties: { id: { type: string, format: uuid } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /app/evaluation-sessions/{id}/result:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [App]
+      summary: Registra el resultado de la sesión (idempotente; el servidor calcula puntaje y estado)
+      security: [{ supabaseAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/SubmitResult" } } }
+      responses:
+        "201": { description: Registrado, content: { application/json: { schema: { $ref: "#/components/schemas/AppEvaluation" } } } }
+        "200": { description: Eco de un reintento (replayed true), content: { application/json: { schema: { $ref: "#/components/schemas/AppEvaluation" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /app/access-passes:
+    post:
+      tags: [App]
+      summary: Emite o recupera el pase vigente (idempotente)
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "200": { description: Pase, content: { application/json: { schema: { $ref: "#/components/schemas/AppPass" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+  /app/pass-validations:
+    post:
+      tags: [App]
+      summary: El supervisor valida un código de pase (reloj y reglas del servidor)
+      security: [{ supabaseAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [code], properties: { code: { type: string, pattern: "^SP-[0-9A-F]{6}$" } } } } }
+      responses:
+        "200": { description: Resultado, content: { application/json: { schema: { $ref: "#/components/schemas/PassValidation" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /app/decisions:
+    post:
+      tags: [App]
+      summary: Decisión del supervisor sobre otro trabajador
+      security: [{ supabaseAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateAppDecision" } } }
+      responses:
+        "201": { description: Registrada, content: { application/json: { schema: { $ref: "#/components/schemas/AppDecision" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /app/decisions/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    patch:
+      tags: [App]
+      summary: El trabajador marca la decisión como vista (único cambio permitido)
+      security: [{ supabaseAuth: [] }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [seen], properties: { seen: { const: true } } } } }
+      responses:
+        "204": { description: Marcada }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /app/decisions/{id}/retest-starts:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      tags: [App]
+      summary: Inicia el re-test autorizado tras el descanso de 15 minutos
+      security: [{ supabaseAuth: [] }]
+      responses:
+        "204": { description: Iniciado }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
     totemKey: { type: apiKey, in: header, name: X-Totem-Key }
+    supabaseAuth: { type: http, scheme: bearer, bearerFormat: JWT, description: "Token de acceso de Supabase Auth del propio usuario" }
 
   parameters:
     Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -237,6 +369,11 @@ components:
               pin: { type: string, pattern: "^\\d{6}$" }
 
   responses:
+    BusinessRule: { description: "Regla de negocio (PASS_NOT_ALLOWED, EVALUATION_TOO_FAST…)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+    Unavailable:
+      description: "Supabase no responde (UPSTREAM_UNAVAILABLE) o la API de la app no está configurada (APP_API_DISABLED)"
+      headers: { Retry-After: { schema: { type: integer } } }
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
     BadRequest: { description: "Validación fallida (VALIDATION_ERROR / MALFORMED_JSON)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     Unauthorized: { description: "Sin token o token inválido (INVALID_SESSION)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     InvalidCredentials: { description: "Ficha o PIN incorrectos; misma respuesta para cuenta inexistente, bloqueada o deshabilitada (INVALID_CREDENTIALS)", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
@@ -389,3 +526,76 @@ components:
       required: [reason]
       properties:
         reason: { type: string, minLength: 10, maxLength: 500 }
+    AppStatus: { type: string, enum: [apto, semi, "no"] }
+    AppDecisionType: { type: string, enum: [retest, pase, revision, reasignar, policlinico, suspender] }
+    AppProfile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fichaId: { type: string }
+        fullName: { type: string }
+        position: { type: string }
+        company: { type: [string, "null"] }
+        shift: { type: string }
+        role: { type: string, enum: [worker, supervisor] }
+    BatteryEntry:
+      type: object
+      additionalProperties: false
+      required: [key, name, detail, score]
+      properties:
+        key: { type: string, enum: [figuras, gonogo, memoria, pvt, tracking] }
+        name: { type: string, maxLength: 60 }
+        detail: { type: string, maxLength: 160 }
+        score: { type: integer, minimum: 0, maximum: 100 }
+    SubmitResult:
+      type: object
+      additionalProperties: false
+      required: [breakdown]
+      properties:
+        breakdown: { type: array, minItems: 5, maxItems: 5, items: { $ref: "#/components/schemas/BatteryEntry" } }
+    AppEvaluation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workerId: { type: string, format: uuid }
+        score: { type: integer }
+        status: { $ref: "#/components/schemas/AppStatus" }
+        completedAt: { type: string, format: date-time }
+        breakdown: { type: [array, "null"], items: { $ref: "#/components/schemas/BatteryEntry" } }
+        replayed: { type: boolean }
+    AppDecision:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workerId: { type: string, format: uuid }
+        decision: { $ref: "#/components/schemas/AppDecisionType" }
+        note: { type: [string, "null"] }
+        decidedByFicha: { type: [string, "null"] }
+        decidedAt: { type: string, format: date-time }
+        evaluationScore: { type: [integer, "null"] }
+        evaluationStatus: { oneOf: [{ $ref: "#/components/schemas/AppStatus" }, { type: "null" }] }
+        seenAt: { type: [string, "null"], format: date-time }
+        consumedAt: { type: [string, "null"], format: date-time }
+    CreateAppDecision:
+      type: object
+      additionalProperties: false
+      required: [workerId, decision]
+      properties:
+        workerId: { type: string, format: uuid }
+        decision: { $ref: "#/components/schemas/AppDecisionType" }
+        note: { type: [string, "null"], maxLength: 280 }
+    AppPass:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, pattern: "^SP-[0-9A-F]{6}$" }
+        fichaId: { type: string }
+        issuedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    PassValidation:
+      type: object
+      properties:
+        status: { type: string, enum: [valid, expired, revoked, invalid] }
+        reason: { type: [string, "null"], enum: [account_disabled, supervisor_decision, later_evaluation, null] }
+        pass: { oneOf: [{ $ref: "#/components/schemas/AppPass" }, { type: "null" }] }
+        holder: { type: [object, "null"], properties: { fullName: { type: string }, position: { type: string }, company: { type: [string, "null"] } } }

@@ -32,7 +32,7 @@ export default function WorkerDashboard({
   const [historyState, setHistoryState] = useState<"loading" | "ready" | "error">("loading")
   useEffect(() => {
     let cancelled = false
-    fetchHistory(profile.id)
+    fetchHistory()
       .then((h) => {
         if (!cancelled) {
           setHistory(h)

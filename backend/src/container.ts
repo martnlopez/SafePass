@@ -1,5 +1,8 @@
 import type { AppConfig } from "./config/env.js"
+import { AppController } from "./controllers/app.controller.js"
 import { AuthController } from "./controllers/auth.controller.js"
+import { SupabaseAppDataRepository, type AppDataRepository } from "./repositories/app-data.repository.js"
+import { AppService } from "./services/app.service.js"
 import { EvaluationController } from "./controllers/evaluation.controller.js"
 import { HealthController } from "./controllers/health.controller.js"
 import { WorkerController } from "./controllers/worker.controller.js"
@@ -38,6 +41,12 @@ export function createPrismaRepositories(db: PrismaClient): Repositories {
   }
 }
 
+/** Repositorio de la app en Supabase si el servidor está configurado para ello */
+export function createAppDataRepository(config: AppConfig): AppDataRepository | null {
+  if (!config.SUPABASE_URL || !config.SUPABASE_PUBLISHABLE_KEY) return null
+  return new SupabaseAppDataRepository(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, config.SUPABASE_TIMEOUT_MS)
+}
+
 /**
  * Composición manual de dependencias: Repositories → Services → Controllers.
  * Los tests inyectan repositorios en memoria y un reloj controlado.
@@ -46,6 +55,8 @@ export function buildContainer(deps: {
   config: AppConfig
   logger: Logger
   repositories: Repositories
+  /** Datos de la app en Supabase (null si el servidor no tiene SUPABASE_* configurado) */
+  appData?: AppDataRepository | null
   now?: () => Date
 }) {
   const { config, logger, repositories: repos } = deps
@@ -82,16 +93,18 @@ export function buildContainer(deps: {
   )
   const worker = new WorkerService(repos.workers, cipher, pins, audit, now)
   const health = new HealthService(repos.health)
+  const app = deps.appData ? new AppService(deps.appData) : null
 
   return {
     config,
     logger,
-    services: { auth, worker, evaluation, health, audit },
+    services: { auth, worker, evaluation, health, audit, app },
     controllers: {
       auth: new AuthController(auth),
       worker: new WorkerController(worker),
       evaluation: new EvaluationController(evaluation),
       health: new HealthController(health),
+      app: app ? new AppController(app) : null,
     },
     limiters: createRateLimiters(config),
   }

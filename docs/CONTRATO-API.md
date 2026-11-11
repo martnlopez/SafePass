@@ -4,8 +4,29 @@ SafePass expone sus capacidades por **dos contratos**:
 
 | Contrato | Quién lo usa | Fuente de verdad |
 |---|---|---|
-| **Supabase** (PostgREST + RPC + Realtime) | La app web/PWA de trabajadores y supervisores | Este documento + `supabase/migrations/` |
-| **API REST Express** (`/api/v1`) | Tótems e integradores (panel HSE) | [`backend/openapi.yaml`](../backend/openapi.yaml) |
+| **API SafePass** (`/api/v1`) | La app web/PWA (`/api/v1/app/*`), tótems e integradores | [`backend/openapi.yaml`](../backend/openapi.yaml) |
+| **Supabase** (RLS + RPC + Realtime) | El backend (con el token de cada usuario), el inicio de sesión y los paneles en vivo del supervisor | Este documento + `supabase/migrations/` |
+
+Desde 2026-11-10 la app llama a la API SafePass (ver `docs/DECISIONES.md`, D7). La API reenvía
+el token de Supabase del usuario, así que las reglas siguen en un solo lugar: la base.
+
+| Ruta de la app | Equivale a (Supabase) |
+|---|---|
+| `GET /app/me` | `workers` (propio, activo) |
+| `GET /app/me/evaluations`, `/latest` | `evaluations`, `latest_evaluations` |
+| `GET /app/me/decisions/latest` | `latest_decisions` |
+| `GET /app/me/access-passes/current` | `access_passes` vigente |
+| `POST /app/evaluation-sessions` | `rpc/start_evaluation` |
+| `POST /app/evaluation-sessions/{id}/result` | `rpc/submit_evaluation` |
+| `POST /app/access-passes` | `rpc/issue_access_pass` |
+| `POST /app/pass-validations` | `rpc/validate_pass` |
+| `POST /app/decisions` | INSERT `decisions` |
+| `PATCH /app/decisions/{id}` `{ seen: true }` | `rpc/mark_decision_seen` |
+| `POST /app/decisions/{id}/retest-starts` | `rpc/start_authorized_retest` |
+
+Códigos HTTP que devuelve la API para las reglas de la base: `401` sesión, `403` permisos y
+autorización pendiente, `404` sesión/decisión inexistente, `422` regla de negocio, `429` +
+`Retry-After` descansos y límites, `503` + `Retry-After` si Supabase no responde.
 
 Reglas comunes: el cliente **nunca decide** (puntaje, estado, vigencia del pase y permisos los
 calcula el servidor); fechas en UTC; errores con código de máquina + mensaje para la persona.
@@ -72,6 +93,7 @@ paginación `page`/`pageSize` (tope 100) con `{ data, meta }` · `201 + Location
 
 | Fecha | Cambio | ¿Rompe? |
 |---|---|---|
+| 2026-11-10 | Nueva API de la app `/api/v1/app/*` (OpenAPI 1.2.0); la app deja de llamar directo a las tablas y RPC de Supabase | No para clientes externos (rutas nuevas) |
 | 2026-11-10 | `submit_evaluation` devuelve la misma evaluación en reintentos (`replayed`) | No (campo nuevo) |
 | 2026-11-10 | API REST: `POST /evaluations` responde `200` + eco en reintentos (antes `409`) y agrega `Location`; `Location` de `POST /workers` corregido a `/api/v1/workers/{id}` | Sí para quien esperaba 409 (sin clientes en producción) |
 | 2026-11-10 | Evaluaciones solo vía `start_evaluation` / `submit_evaluation`; nuevo `validate_pass`; pase excepcional de un solo uso | Sí (sin clientes externos; la app se actualizó a la vez) |

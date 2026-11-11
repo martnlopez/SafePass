@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import type { Status } from "./data"
-import { describeError, supabase } from "./supabase"
+import { api } from "./api"
+import { supabase } from "./supabase"
 
 // Decisiones del supervisor sobre un caso (tabla decisions en Supabase), compartidas
 // entre el panel de supervisión y la vista del trabajador. El servidor fija la hora,
@@ -154,34 +155,57 @@ function toDecision(row: DecisionRow): SupervisorDecision {
   }
 }
 
+/** Decisión tal como la entrega la API SafePass */
+interface ApiDecision {
+  id: string
+  workerId: string
+  decision: DecisionId
+  note: string | null
+  decidedByFicha: string | null
+  decidedAt: string
+  evaluationScore: number | null
+  evaluationStatus: Status | null
+  seenAt: string | null
+  consumedAt: string | null
+}
+
+function fromApi(d: ApiDecision): SupervisorDecision {
+  return toDecision({
+    id: d.id,
+    worker_id: d.workerId,
+    decision: d.decision,
+    note: d.note,
+    decided_by_ficha: d.decidedByFicha,
+    decided_at: d.decidedAt,
+    evaluation_score: d.evaluationScore,
+    evaluation_status: d.evaluationStatus,
+    seen_at: d.seenAt,
+    consumed_at: d.consumedAt,
+  })
+}
+
 /** Panel de supervisión: registra una nueva decisión sobre el caso (pasa a ser la vigente) */
 export async function saveDecision(input: { workerId: string; decision: DecisionId; note: string }): Promise<SupervisorDecision> {
   const note = input.note.trim().slice(0, NOTE_MAX_LENGTH)
-  const { data, error } = await supabase
-    .from("decisions")
-    .insert({ worker_id: input.workerId, decision: input.decision, note: note || null })
-    .select(COLUMNS)
-    .single<DecisionRow>()
-  if (error || !data) throw new Error(describeError(error))
-  return toDecision(data)
+  const saved = await api<ApiDecision>("/app/decisions", {
+    method: "POST",
+    body: { workerId: input.workerId, decision: input.decision, note: note || null },
+  })
+  return fromApi(saved)
 }
 
-export async function fetchLatestDecision(workerId: string): Promise<SupervisorDecision | null> {
-  const { data, error } = await supabase
-    .from("latest_decisions")
-    .select(COLUMNS)
-    .eq("worker_id", workerId)
-    .maybeSingle<DecisionRow>()
-  if (error) throw new Error(describeError(error))
-  return data ? toDecision(data) : null
+/** Última decisión sobre el propio trabajador */
+export async function fetchLatestDecision(): Promise<SupervisorDecision | null> {
+  const { data } = await api<{ data: ApiDecision | null }>("/app/me/decisions/latest")
+  return data ? fromApi(data) : null
 }
 
 /**
  * Decisión que el trabajador debe ver al iniciar sesión: posterior a su último resultado y
  * aún sin usar. Las autorizaciones (re-test / pase) se muestran hasta que se usan; los bloqueos, siempre.
  */
-export async function fetchPendingDecisionForWorker(workerId: string, lastResultAt?: number): Promise<SupervisorDecision | null> {
-  const d = await fetchLatestDecision(workerId)
+export async function fetchPendingDecisionForWorker(lastResultAt?: number): Promise<SupervisorDecision | null> {
+  const d = await fetchLatestDecision()
   if (!d || d.consumedAt !== null) return null
   return isDecisionCurrent(d, lastResultAt) ? d : null
 }
@@ -201,13 +225,12 @@ export function isDecisionCurrent(d: SupervisorDecision, lastResultAt?: number):
 
 /** Marca la decisión como vista por el trabajador (informativo: si falla no bloquea el flujo) */
 export async function markDecisionSeen(decisionId: string): Promise<void> {
-  await supabase.rpc("mark_decision_seen", { p_decision_id: decisionId })
+  await api(`/app/decisions/${encodeURIComponent(decisionId)}`, { method: "PATCH", body: { seen: true } }).catch(() => undefined)
 }
 
 /** Inicia el re-test autorizado; el servidor verifica que el descanso ya terminó */
 export async function startAuthorizedRetest(decisionId: string): Promise<void> {
-  const { error } = await supabase.rpc("start_authorized_retest", { p_decision_id: decisionId })
-  if (error) throw new Error(describeError(error))
+  await api(`/app/decisions/${encodeURIComponent(decisionId)}/retest-starts`, { method: "POST" })
 }
 
 /** Última decisión de cada trabajador (por workers.id), en tiempo real para el panel */

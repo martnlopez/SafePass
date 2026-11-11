@@ -53,6 +53,16 @@ const EnvSchema = z
     RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().min(1).default(10),
     RATE_LIMIT_LOGIN_PER_ACCOUNT_MAX: z.coerce.number().int().min(1).default(5),
     RATE_LIMIT_EVALUATIONS_PER_MINUTE: z.coerce.number().int().min(1).default(20),
+
+    // API de la app (/api/v1/app): proyecto Supabase con sus datos. Solo la URL y la clave
+    // PUBLICABLE: el backend actúa con el token de cada usuario, nunca con service_role.
+    SUPABASE_URL: z.url().optional(),
+    SUPABASE_PUBLISHABLE_KEY: z
+      .string()
+      .min(10)
+      .refine((k) => !k.startsWith("sb_secret_"), "Usa la clave publicable, no la secreta")
+      .optional(),
+    SUPABASE_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(8_000),
   })
   .superRefine((env, ctx) => {
     if (env.FIELD_ENCRYPTION_KEY === env.BLIND_INDEX_KEY) {

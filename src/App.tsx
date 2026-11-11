@@ -62,9 +62,9 @@ export default function App() {
       setMode("supervisor")
       return
     }
-    const latest = await fetchLatestResult(p.id)
+    const latest = await fetchLatestResult()
     // Decisión del supervisor: se muestra antes de iniciar o retomar la evaluación
-    const pending = await fetchPendingDecisionForWorker(p.id, latest?.completedAt)
+    const pending = await fetchPendingDecisionForWorker(latest?.completedAt)
     if (pending) {
       setDecision(pending)
       setView("decision")
@@ -79,7 +79,7 @@ export default function App() {
     }
     // Pase vigente (APTO de las últimas 12 h o Pase Excepcional ya emitido): se vuelve a mostrar.
     // Si falla la consulta, sigue al panel normal en vez de bloquear el ingreso.
-    const pass = await fetchActivePass(p.fichaId).catch(() => null)
+    const pass = await fetchActivePass().catch(() => null)
     const passIsCurrent = pass !== null && (!latest || pass.issuedAt >= latest.completedAt)
     const aptoIsCurrent = latest?.status === "apto" && Date.now() - latest.completedAt < APTO_VALID_MS
     if (aptoIsCurrent && latest?.breakdown) {

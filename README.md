@@ -16,16 +16,20 @@
 * [Mapa del Producto / Arquitectura de Información](./docs/mapa_producto.png)
 * [Diagrama de Arquitectura Técnica](./docs/arquitectura_tecnica.png)
 
-## Ejecutar el frontend
+## Ejecutar la app
 
-El frontend se conecta directamente a **Supabase** (organización SafePass, proyecto `Safepass`):
-login por Ficha ID + PIN con Supabase Auth, y evaluaciones, decisiones del supervisor y pases
-guardados en PostgreSQL con reglas de seguridad (RLS) por usuario.
+La app (frontend) habla con la **API SafePass** (backend Express en `./backend`), que a su vez
+trabaja sobre **Supabase** (organización SafePass, proyecto `Safepass`) con el token de cada
+usuario: las reglas de seguridad (RLS) y de negocio viven en la base. El inicio de sesión
+(Ficha ID + PIN) es de Supabase Auth.
 
-1. Instala las dependencias: `npm install`
-2. Copia `.env.example` como `.env.local` y completa `VITE_SUPABASE_URL` y
-   `VITE_SUPABASE_PUBLISHABLE_KEY` (Supabase → Project Settings → API).
-3. Inicia el servidor de desarrollo: `npm run dev` → http://localhost:5173
+1. Backend: en `backend/`, copia `.env.example` como `.env`, completa los secretos
+   (`npm run keys:generate`), `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`, y ejecuta
+   `npm install` y `npm run dev` → http://localhost:3000
+2. Frontend: en esta carpeta, `npm install`; copia `.env.example` como `.env.local` y completa
+   `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y `VITE_API_URL`
+   (por defecto `http://localhost:3000/api/v1`).
+3. `npm run dev` → http://localhost:5173 (el backend debe estar corriendo).
 
 ### Base de datos
 

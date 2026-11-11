@@ -1,3 +1,4 @@
+import { api, ApiError } from "./api"
 import { describeError, supabase } from "./supabase"
 
 // Login por Ficha ID + PIN sobre Supabase Auth. Cada ficha es una cuenta con un
@@ -30,7 +31,14 @@ export async function signIn(fichaId: string, pin: string): Promise<SignInResult
       : { ok: false, reason: "credentials", message: "Ficha ID o PIN incorrectos" }
   }
 
-  const profile = await fetchProfile(data.user.id)
+  let profile: WorkerProfile | null
+  try {
+    profile = await fetchProfile()
+  } catch (err) {
+    // La API SafePass no respondió: no se deja una sesión a medias
+    await supabase.auth.signOut()
+    return { ok: false, reason: "network", message: (err as Error).message }
+  }
   if (!profile) {
     await supabase.auth.signOut()
     return { ok: false, reason: "inactive", message: "Tu cuenta no está habilitada. Contacta a tu supervisor." }
@@ -38,21 +46,16 @@ export async function signIn(fichaId: string, pin: string): Promise<SignInResult
   return { ok: true, profile }
 }
 
-export async function fetchProfile(userId: string): Promise<WorkerProfile | null> {
-  const { data, error } = await supabase
-    .from("workers")
-    .select("id, ficha_id, full_name, position, company, shift, app_role, active")
-    .eq("id", userId)
-    .maybeSingle()
-  if (error || !data || !data.active) return null
-  return {
-    id: data.id,
-    fichaId: data.ficha_id,
-    fullName: data.full_name,
-    position: data.position,
-    company: data.company,
-    shift: data.shift,
-    role: data.app_role,
+/**
+ * Perfil del usuario autenticado, desde la API SafePass. null = cuenta inexistente o
+ * desactivada; lanza ApiError si la API no responde.
+ */
+export async function fetchProfile(): Promise<WorkerProfile | null> {
+  try {
+    return await api<WorkerProfile>("/app/me")
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) return null
+    throw err
   }
 }
 

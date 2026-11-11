@@ -30,6 +30,26 @@ export class UniqueConstraintError extends Error {
   }
 }
 
+/**
+ * Regla de negocio rechazada por la base de Supabase: un trigger o una RPC lanzó un código
+ * en MAYÚSCULAS (p. ej. "PASS_NOT_ALLOWED"). Nace en el repository; el service le da el
+ * significado HTTP (prompt de arquitectura §6.10).
+ */
+export class DataRuleError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+    this.name = "DataRuleError"
+  }
+}
+
+/** Supabase no respondió (timeout, sin red). Reintentar más tarde tiene sentido. */
+export class UpstreamUnavailableError extends Error {
+  constructor(cause?: unknown) {
+    super("Servicio de datos no disponible", { cause })
+    this.name = "UpstreamUnavailableError"
+  }
+}
+
 /** Lanzado por repositorios cuando el registro a modificar no existe */
 export class RecordNotFoundError extends Error {
   constructor() {

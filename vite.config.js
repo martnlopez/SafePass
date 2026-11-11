@@ -9,9 +9,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 // en línea para la recarga en caliente.
 // Nota: frame-ancestors (anti-clickjacking) no funciona en <meta>; debe enviarse como
 // cabecera HTTP desde el hosting.
-function contentSecurityPolicy(supabaseUrl) {
+const DEFAULT_API_URL = 'http://localhost:3000/api/v1'
+
+function contentSecurityPolicy(supabaseUrl, apiUrl) {
   const supabase = supabaseUrl ? new URL(supabaseUrl) : null
-  const connect = supabase ? `https://${supabase.host} wss://${supabase.host}` : ''
+  // La app llama a la API SafePass (backend) y, para login y paneles en vivo, a Supabase
+  const api = new URL(apiUrl || DEFAULT_API_URL)
+  const connect = [api.origin, supabase ? `https://${supabase.host} wss://${supabase.host}` : ''].join(' ').trim()
   const policy = [
     "default-src 'self'",
     "script-src 'self'",
@@ -42,7 +46,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      contentSecurityPolicy(env.VITE_SUPABASE_URL),
+      contentSecurityPolicy(env.VITE_SUPABASE_URL, env.VITE_API_URL),
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {

@@ -1,6 +1,6 @@
-import { describeError, supabase } from "./supabase"
+import { api } from "./api"
 
-// Pase de acceso (tabla access_passes en Supabase). Lo emite el servidor con la función
+// Pase de acceso (tabla access_passes en Supabase, vía la API SafePass). Lo emite el servidor con la función
 // issue_access_pass(): genera el código y verifica que el trabajador tenga un resultado
 // APTO vigente o un Pase Excepcional del supervisor. El QR y el código manual apuntan al
 // mismo registro, así el supervisor puede validar cualquiera de los dos.
@@ -36,40 +36,40 @@ export function isCompletePassCode(code: string): boolean {
   return new RegExp(`^${PASS_CODE_PREFIX}-[0-9A-F]{${PASS_CODE_CHARS}}$`).test(code)
 }
 
-function toPass(p: { id: string; code: string; ficha_id: string; issued_at: string; expires_at: string }): AccessPass {
-  const issuedAt = new Date(p.issued_at).getTime()
-  const expiresAt = new Date(p.expires_at).getTime()
+/** Pase tal como lo entrega la API SafePass */
+interface ApiPass {
+  id: string
+  code: string
+  fichaId: string
+  issuedAt: string
+  expiresAt: string
+}
+
+function toPass(p: ApiPass): AccessPass {
+  const issuedAt = new Date(p.issuedAt).getTime()
+  const expiresAt = new Date(p.expiresAt).getTime()
   return {
     id: p.id,
     code: p.code,
-    fichaId: p.ficha_id,
+    fichaId: p.fichaId,
     issuedAt,
     expiresAt,
-    payload: JSON.stringify({ id: p.id, fichaId: p.ficha_id, issuedAt, expiresAt, code: p.code }),
+    payload: JSON.stringify({ id: p.id, fichaId: p.fichaId, issuedAt, expiresAt, code: p.code }),
   }
 }
 
 /**
- * Pase vigente más reciente del trabajador autenticado (las reglas RLS solo devuelven
- * los propios). No emite nada: sirve para volver a mostrarlo al iniciar sesión de nuevo.
+ * Pase vigente más reciente del trabajador autenticado. No emite nada: sirve para volver
+ * a mostrarlo al iniciar sesión de nuevo.
  */
-export async function fetchActivePass(fichaId: string): Promise<AccessPass | null> {
-  const { data, error } = await supabase
-    .from("access_passes")
-    .select("id, code, issued_at, expires_at")
-    .gt("expires_at", new Date().toISOString())
-    .order("issued_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ id: string; code: string; issued_at: string; expires_at: string }>()
-  if (error) throw new Error(describeError(error))
-  return data ? toPass({ ...data, ficha_id: fichaId }) : null
+export async function fetchActivePass(): Promise<AccessPass | null> {
+  const { data } = await api<{ data: ApiPass | null }>("/app/me/access-passes/current")
+  return data ? toPass(data) : null
 }
 
 /** Emite (o recupera, si ya existe uno vigente) el pase del trabajador autenticado */
 export async function issueAccessPass(): Promise<AccessPass> {
-  const { data, error } = await supabase.rpc("issue_access_pass")
-  if (error || !data) throw new Error(describeError(error))
-  return toPass(data as { id: string; code: string; ficha_id: string; issued_at: string; expires_at: string })
+  return toPass(await api<ApiPass>("/app/access-passes", { method: "POST" }))
 }
 
 export interface PassHolder {
@@ -87,17 +87,11 @@ export type ValidationResult =
   | { status: "invalid" }
   | { status: "error"; message: string }
 
-interface ValidatePassRow {
+interface ApiPassValidation {
   status: "valid" | "expired" | "revoked" | "invalid"
   reason: RevokeReason | null
-  id: string
-  code: string
-  issued_at: string
-  expires_at: string
-  ficha_id: string
-  full_name: string
-  position: string
-  company: string | null
+  pass: ApiPass | null
+  holder: PassHolder | null
 }
 
 /** Supervisor: acepta el código manual (SP-2AAE91 / 2AAE91) o el contenido JSON del QR */
@@ -119,15 +113,21 @@ export async function validatePass(input: string): Promise<ValidationResult> {
 
   // El servidor decide con su reloj y con la elegibilidad actual del trabajador
   // (cuenta activa, decisiones y evaluaciones posteriores a la emisión)
-  const { data, error } = await supabase.rpc("validate_pass", { p_code: code })
-  if (error) return { status: "error", message: describeError(error) }
-  const row = data as ValidatePassRow | null
-  if (!row || row.status === "invalid" || (id && row.id !== id)) return { status: "invalid" }
+  let result: ApiPassValidation
+  try {
+    result = await api<ApiPassValidation>("/app/pass-validations", { method: "POST", body: { code } })
+  } catch (err) {
+    return { status: "error", message: (err as Error).message }
+  }
+  if (result.status === "invalid" || !result.pass || !result.holder || (id && result.pass.id !== id)) {
+    return { status: "invalid" }
+  }
 
-  const pass = toPass(row)
-  const holder = { fullName: row.full_name, position: row.position, company: row.company }
-  if (row.status === "revoked") return { status: "revoked", reason: row.reason ?? "supervisor_decision", pass, holder }
-  return { status: row.status, pass, holder }
+  const pass = toPass(result.pass)
+  if (result.status === "revoked") {
+    return { status: "revoked", reason: result.reason ?? "supervisor_decision", pass, holder: result.holder }
+  }
+  return { status: result.status, pass, holder: result.holder }
 }
 
 export const REVOKE_REASON_TEXT: Record<RevokeReason, string> = {

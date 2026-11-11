@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react"
 import { breakdownFromResult, type BatteryResult, type Evaluation, type Status } from "./data"
+import { api } from "./api"
 import { describeError, isTransientError, supabase } from "./supabase"
 
-// Resultados de las evaluaciones en Supabase (tabla evaluations). El servidor fija
-// la hora de finalización y aplica las reglas de re-evaluación al insertar.
+// Resultados de las evaluaciones. Las operaciones del trabajador pasan por la API SafePass;
+// el panel del supervisor lee en vivo desde Supabase Realtime (con las mismas reglas RLS).
 
 export interface StoredResult {
   id: string
@@ -38,14 +39,35 @@ function toResult(row: EvaluationRow): StoredResult {
   }
 }
 
+/** Evaluación tal como la entrega la API SafePass */
+interface ApiEvaluation {
+  id: string
+  workerId: string
+  score: number
+  status: Status
+  completedAt: string
+  breakdown: BatteryResult["breakdown"] | null
+  replayed?: boolean
+}
+
+function fromApi(e: ApiEvaluation): StoredResult {
+  return {
+    id: e.id,
+    workerId: e.workerId,
+    score: e.score,
+    status: e.status,
+    completedAt: new Date(e.completedAt).getTime(),
+    breakdown: e.breakdown,
+  }
+}
+
 /**
  * Abre una sesión de evaluación en el servidor. Solo se puede registrar un resultado
  * dentro de una sesión: el servidor mide la duración y acepta un único envío.
  */
 export async function startEvaluation(): Promise<string> {
-  const { data, error } = await supabase.rpc("start_evaluation")
-  if (error || typeof data !== "string") throw new Error(describeError(error))
-  return data
+  const { id } = await api<{ id: string }>("/app/evaluation-sessions", { method: "POST" })
+  return id
 }
 
 /** Esperas entre reintentos del envío (crecientes): ~11 s en total antes de rendirse */
@@ -61,41 +83,30 @@ export async function recordResult(sessionId: string, result: BatteryResult): Pr
   let lastError: unknown = null
   for (let attempt = 0; attempt <= SUBMIT_RETRY_DELAYS_MS.length; attempt++) {
     try {
-      const { data, error } = await supabase.rpc("submit_evaluation", {
-        p_session_id: sessionId,
-        p_breakdown: result.breakdown,
+      const saved = await api<ApiEvaluation>(`/app/evaluation-sessions/${encodeURIComponent(sessionId)}/result`, {
+        method: "POST",
+        body: { breakdown: result.breakdown },
       })
-      if (!error && data) return toResult(data as EvaluationRow)
-      lastError = error
+      return fromApi(saved)
     } catch (err) {
       lastError = err
     }
     if (!isTransientError(lastError) || attempt === SUBMIT_RETRY_DELAYS_MS.length) break
     await sleep(SUBMIT_RETRY_DELAYS_MS[attempt])
   }
-  throw new Error(describeError(lastError))
+  throw lastError instanceof Error ? lastError : new Error(describeError(lastError))
 }
 
-/** Historial de un trabajador, del más antiguo al más reciente */
-export async function fetchHistory(workerId: string): Promise<StoredResult[]> {
-  const { data, error } = await supabase
-    .from("evaluations")
-    .select(COLUMNS)
-    .eq("worker_id", workerId)
-    .order("completed_at", { ascending: true })
-    .returns<EvaluationRow[]>()
-  if (error) throw new Error(describeError(error))
-  return (data ?? []).map(toResult)
+/** Historial propio, del más antiguo al más reciente */
+export async function fetchHistory(): Promise<StoredResult[]> {
+  const { data } = await api<{ data: ApiEvaluation[] }>("/app/me/evaluations")
+  return data.map(fromApi)
 }
 
-export async function fetchLatestResult(workerId: string): Promise<StoredResult | null> {
-  const { data, error } = await supabase
-    .from("latest_evaluations")
-    .select(COLUMNS)
-    .eq("worker_id", workerId)
-    .maybeSingle<EvaluationRow>()
-  if (error) throw new Error(describeError(error))
-  return data ? toResult(data) : null
+/** Último resultado propio (null si aún no rinde ninguna evaluación) */
+export async function fetchLatestResult(): Promise<StoredResult | null> {
+  const { data } = await api<{ data: ApiEvaluation | null }>("/app/me/evaluations/latest")
+  return data ? fromApi(data) : null
 }
 
 export function formatCompletedTime(ts: number, withSeconds = false): string {
