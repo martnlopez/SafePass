@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { buildBreakdown, STATUS_META, type Evaluation } from "../lib/data"
+import { flagText } from "../lib/flags"
 import {
   DECISIONS,
   decisionOption,
@@ -95,6 +96,22 @@ export default function ManageModal({
         </div>
 
         <div className="overflow-y-auto p-6">
+          {evaluation.flags && (
+            <div role="note" className="mb-5 rounded-xl border border-[color:var(--color-semi)] bg-[color:var(--color-semi)]/10 p-4">
+              <p className="font-mono text-[11px] font-700 uppercase tracking-[0.2em] text-[color:var(--color-semi)]">
+                Revisar · resultado atípico
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[color:var(--color-mist)]">
+                {evaluation.flags.map((f) => (
+                  <li key={f}>{flagText(f)}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[color:var(--color-fog)]">
+                Es una señal, no una conclusión: confirma el resultado con la persona o pídele que rinda de nuevo.
+              </p>
+            </div>
+          )}
+
           {/* Misma escala 0-100 y tramos que ve el trabajador */}
           <ScoreScale score={evaluation.score} className="" />
           <p className={`mt-2 text-center font-mono text-[11px] font-700 uppercase tracking-wider ${m.text}`}>

@@ -4,10 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest"
 import { DataRuleError, UpstreamUnavailableError } from "../src/errors/app-error.js"
 import type { AppDataRepository } from "../src/repositories/app-data.repository.js"
 import type { AppDecision, AppEvaluation, AppPass, BatteryEntry } from "../src/types/app.js"
-import { pino } from "pino"
-import { createApp } from "../src/app.js"
-import { buildContainer, createUnavailableRepositories } from "../src/container.js"
-import { createTestApp, testConfig } from "./helpers/test-app.js"
+import { createTestApp } from "./helpers/test-app.js"
 
 /**
  * Pruebas de contrato de /api/v1/app. Supabase se reemplaza por un falso que reproduce
@@ -41,6 +38,11 @@ class FakeSupabase implements AppDataRepository {
     const id = TOKENS[token]
     if (!id) throw new DataRuleError("NOT_AUTHENTICATED")
     return id
+  }
+
+  upstreamUp = true
+  async ping() {
+    if (!this.upstreamUp) throw new UpstreamUnavailableError()
   }
 
   async verifyAccessToken(token: string) {
@@ -128,7 +130,7 @@ describe("API de la app (/api/v1/app)", () => {
 
   beforeEach(() => {
     fake = new FakeSupabase()
-    t = createTestApp({}, { appData: fake })
+    t = createTestApp(fake)
   })
 
   it("sin token → 401; token inválido → 401", async () => {
@@ -232,39 +234,53 @@ describe("API de la app (/api/v1/app)", () => {
     expect(res.body.error.code).toBe("UPSTREAM_UNAVAILABLE")
     expect(res.headers["retry-after"]).toBe("5")
   })
-
-  it("sin configuración de Supabase la API de la app responde 503", async () => {
-    const off = createTestApp()
-    const res = await request(off.app).get("/api/v1/app/me").set(as("tok-worker"))
-    expect(res.status).toBe(503)
-    expect(res.body.error.code).toBe("APP_API_DISABLED")
-  })
 })
 
-describe("servidor sin base propia (solo API de la app)", () => {
-  const app = createApp(
-    buildContainer({
-      config: testConfig(),
-      logger: pino({ level: "silent" }),
-      repositories: createUnavailableRepositories(),
-      appData: new FakeSupabase(),
-    }),
-  )
-
-  it("la API de la app funciona", async () => {
-    const res = await request(app).get("/api/v1/app/me").set({ Authorization: "Bearer tok-worker" })
+describe("salud y protecciones del servidor", () => {
+  it("/health responde sin autenticación", async () => {
+    const fake = new FakeSupabase()
+    const { app } = createTestApp(fake)
+    const res = await request(app).get("/health")
     expect(res.status).toBe(200)
+    expect(res.body.status).toBe("ok")
   })
 
-  it("las rutas del tótem y del panel responden 503 sin filtrar detalles", async () => {
-    const login = await request(app).post("/api/v1/auth/login").send({ fichaId: "TRB-0512", pin: "480271" })
-    expect(login.status).toBe(503)
-    expect(login.body.error.code).toBe("DATABASE_NOT_CONFIGURED")
+  it("/health/ready: 200 con Supabase arriba, 503 si no responde", async () => {
+    const fake = new FakeSupabase()
+    const { app } = createTestApp(fake)
+    expect((await request(app).get("/health/ready")).body).toEqual({ status: "ok", supabase: "up" })
+    fake.upstreamUp = false
+    const down = await request(app).get("/health/ready")
+    expect(down.status).toBe(503)
+    expect(down.body).toEqual({ status: "unavailable", supabase: "down" })
   })
 
-  it("/health/ready informa la base como deshabilitada, no caída", async () => {
-    const res = await request(app).get("/health/ready")
-    expect(res.status).toBe(200)
-    expect(res.body).toEqual({ status: "ok", database: "disabled" })
+  it("CORS: acepta el origen configurado y no el ajeno", async () => {
+    const { app } = createTestApp(new FakeSupabase())
+    const ok = await request(app).options("/api/v1/app/me").set("Origin", "http://localhost:5173").set("Access-Control-Request-Method", "GET")
+    expect(ok.headers["access-control-allow-origin"]).toBe("http://localhost:5173")
+    const bad = await request(app).options("/api/v1/app/me").set("Origin", "https://malo.example").set("Access-Control-Request-Method", "GET")
+    expect(bad.headers["access-control-allow-origin"]).toBeUndefined()
+  })
+
+  it("límite de tasa: pasado el tope responde 429 con Retry-After", async () => {
+    const { app } = createTestApp(new FakeSupabase(), { RATE_LIMIT_MAX: "10" })
+    const codes: number[] = []
+    for (let i = 0; i < 12; i++) codes.push((await request(app).get("/api/v1/app/me")).status)
+    expect(codes.slice(0, 10).every((c) => c === 401)).toBe(true)
+    expect(codes[10]).toBe(429)
+  })
+
+  it("rutas inexistentes → 404 con el formato de error único", async () => {
+    const { app } = createTestApp(new FakeSupabase())
+    const res = await request(app).get("/api/v1/workers")
+    expect(res.status).toBe(404)
+    expect(res.body.error.code).toBe("ROUTE_NOT_FOUND")
+  })
+
+  it("las respuestas de la API no se guardan en caché", async () => {
+    const { app } = createTestApp(new FakeSupabase())
+    const res = await request(app).get("/api/v1/app/me")
+    expect(res.headers["cache-control"]).toBe("no-store")
   })
 })

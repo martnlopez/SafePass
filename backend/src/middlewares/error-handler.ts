@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express"
 import { ZodError } from "zod"
-import { AppError, RecordNotFoundError, UniqueConstraintError } from "../errors/app-error.js"
+import { AppError } from "../errors/app-error.js"
 import type { Logger } from "../lib/logger.js"
 
 interface ErrorBody {
@@ -33,13 +33,6 @@ export function errorHandler(logger: Logger) {
         details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
       })
     }
-    if (err instanceof UniqueConstraintError) {
-      return send(409, { code: "DUPLICATE", message: "El recurso ya existe" })
-    }
-    if (err instanceof RecordNotFoundError) {
-      return send(404, { code: "NOT_FOUND", message: "Recurso no encontrado" })
-    }
-
     // Errores de body-parser (JSON mal formado, cuerpo demasiado grande)
     const type = (err as { type?: string } | null)?.type
     if (type === "entity.parse.failed") return send(400, { code: "MALFORMED_JSON", message: "JSON mal formado" })

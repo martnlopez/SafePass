@@ -22,8 +22,7 @@ el **inicio de sesión** (Supabase Auth es el proveedor de identidad) y los **pa
 supervisor** (Realtime: el backend no tiene canal de empuje).
 **Reconsideraríamos si:** el doble salto se vuelve un problema de latencia medido; o se agrega un
 canal en vivo al backend (SSE/WebSocket), en cuyo caso los paneles también pasarían por la API.
-**Siguiente cuota:** llevar el flujo del tótem (`/auth/totem/session`, `/evaluations`) a la misma
-base de Supabase y retirar el modelo `VERDE/AMARILLO/ROJO` (deuda de D1).
+**Deuda de D1 pagada:** el sistema antiguo del tótem y el panel HSE se eliminó (ver D8).
 
 ## D1 · La app habla directo con Supabase (reemplazada por D7)
 
@@ -79,10 +78,10 @@ kiosco administrado y que el servidor reciba los ensayos crudos y calcule cada p
 ## D5 · Idempotencia por sesión en vez de cabecera `Idempotency-Key`
 
 El envío del test ya trae una clave natural única generada por el servidor: la sesión
-(`p_session_id` en Supabase, `jti` del token de tótem en Express). Reenviar con la misma sesión
+(`p_session_id`, generado por `start_evaluation`). Reenviar con la misma sesión
 devuelve la misma evaluación (eco). Una cabecera adicional sería redundante.
 **Reconsideraríamos si:** aparecen otras creaciones por POST sin clave natural (p. ej. altas de
-trabajadores desde un integrador con red inestable): ahí sí, `Idempotency-Key`.
+pases o decisiones desde un integrador con red inestable): ahí sí, `Idempotency-Key`.
 
 ## D6 · Sin cola offline persistente en el dispositivo
 
@@ -93,10 +92,40 @@ para el siguiente trabajador (Ley 19.628 / 21.719).
 **Reconsideraríamos si:** la faena opera sin señal por turnos completos; entonces, una cola
 cifrada por trabajador y borrada al cerrar sesión.
 
-## Desviaciones conocidas del estilo REST (deuda menor)
+## D8 · Se elimina el sistema antiguo del tótem y el panel HSE — 2026-11-12
 
-- `DELETE /workers/{id}` y `DELETE /evaluations/{id}` **no borran**: desactivan y anulan
-  (§3.3 recomienda `PATCH`). Cambiarlo rompe el contrato; se hará con el rito
-  expandir → migrar → contraer cuando haya clientes (agregar `PATCH`, medir uso, retirar `DELETE`).
-- Campos del backend en inglés (`fullName`, `pageSize`) y de Supabase en español mixto; la guía
-  de estilo (§4.10) pide uno solo. Se fijará al unificar los modelos (D1).
+**Contexto.** El backend traía un primer diseño con su propia base (PostgreSQL + Prisma), su propio
+inicio de sesión (JWT) y otro modelo de datos (`VERDE/AMARILLO/ROJO`, prueba PVT única, 4
+decisiones). Desde D7 la app no lo usaba, y mantener dos modelos iba contra la fuente única de
+verdad (§1).
+
+| Opción | Costo | Resultado |
+|---|---|---|
+| Dejarlo y documentarlo | Cero ahora | Dos modelos y una base sin uso; confunde y se desactualiza |
+| Migrarlo a Supabase | Alto: reescribir tótem y panel | Funcionalidad que hoy nadie usa |
+| **Eliminarlo** | Medio, una vez | Un solo modelo, menos superficie de ataque, menos secretos que cuidar |
+
+**Elegido:** eliminarlo. Se retiraron Prisma, la base propia, el JWT propio, Argon2, el cifrado de
+RUT, las rutas `/auth/*`, `/workers` y `/evaluations`, y sus ~40 pruebas. El backend quedó en
+`/api/v1/app/*` más `/health`, con Supabase como única fuente de datos, y no necesita secretos
+propios. El código queda en el historial de git (commit `fc3b456` y anteriores) por si se
+recupera.
+**Reconsideraríamos si:** se necesita un lector de credenciales o tótem con clave de dispositivo,
+o un panel para otra audiencia (por ejemplo HSE de la empresa). Se construiría sobre las mismas
+tablas de Supabase y el vocabulario `apto/semi/no`, no sobre el modelo anterior.
+
+## D9 · Resultados sospechosos: señal, no bloqueo — 2026-11-12
+
+El navegador del trabajador nunca es de fiar (§8.10): un programa hecho a medida puede abrir una
+sesión, esperar y enviar puntajes inventados. Cerrarlo del todo exige que el servidor puntúe
+datos crudos (reescribir los 5 tests) o un dispositivo administrado. Mientras tanto, el servidor
+**marca** los resultados atípicos (`flags` en la evaluación) y el panel del supervisor los muestra
+como "Revisar"; no bloquea a nadie, porque un falso positivo no debe impedir la entrada a faena.
+Las marcas solo las ve el supervisor, para que el trabajador no aprenda dónde está el umbral.
+**Reconsideraríamos si:** hay evidencia de abuso real; entonces, puntuar en el servidor.
+
+## Deuda conocida
+
+- Campos de Supabase en español mixto (`ficha_id`, `completed_at`) y de la API en inglés
+  (`fichaId`, `completedAt`); la guía de estilo (§4.10) pide uno solo.
+- Límite de tasa en memoria: con más de una réplica hay que usar un almacén compartido.

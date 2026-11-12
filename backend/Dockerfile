@@ -1,15 +1,11 @@
-# API SafePass (Express + Prisma). Imagen en dos etapas: compila con todas las
+# API SafePass (Express + Supabase). Imagen en dos etapas: compila con todas las
 # dependencias y ejecuta solo con las de producción, como usuario sin privilegios.
 # Los secretos NO se copian: se entregan como variables de entorno al ejecutar
-# (ver .env.example). Las migraciones se aplican aparte, antes de desplegar:
-#   docker build --target build -t safepass-api-build . && \
-#   docker run --rm -e DATABASE_URL=... safepass-api-build npx prisma migrate deploy
+# (ver .env.example).
 
 FROM node:22-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json prisma.config.ts ./
-COPY prisma ./prisma
-# postinstall ejecuta "prisma generate" (no necesita conexión a la base)
+COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src

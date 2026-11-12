@@ -22,14 +22,6 @@ export const Errors = {
     new AppError(429, code, message, { retryAfterSeconds }, { "Retry-After": String(retryAfterSeconds) }),
 }
 
-/** Lanzado por repositorios ante una restricción UNIQUE (independiente de Prisma) */
-export class UniqueConstraintError extends Error {
-  constructor(readonly fields: string[] = []) {
-    super(`Valor duplicado${fields.length ? ` en: ${fields.join(", ")}` : ""}`)
-    this.name = "UniqueConstraintError"
-  }
-}
-
 /**
  * Regla de negocio rechazada por la base de Supabase: un trigger o una RPC lanzó un código
  * en MAYÚSCULAS (p. ej. "PASS_NOT_ALLOWED"). Nace en el repository; el service le da el
@@ -47,13 +39,5 @@ export class UpstreamUnavailableError extends Error {
   constructor(cause?: unknown) {
     super("Servicio de datos no disponible", { cause })
     this.name = "UpstreamUnavailableError"
-  }
-}
-
-/** Lanzado por repositorios cuando el registro a modificar no existe */
-export class RecordNotFoundError extends Error {
-  constructor() {
-    super("Registro no encontrado")
-    this.name = "RecordNotFoundError"
   }
 }

@@ -4,7 +4,7 @@ SafePass expone sus capacidades por **dos contratos**:
 
 | Contrato | Quién lo usa | Fuente de verdad |
 |---|---|---|
-| **API SafePass** (`/api/v1`) | La app web/PWA (`/api/v1/app/*`), tótems e integradores | [`backend/openapi.yaml`](../backend/openapi.yaml) |
+| **API SafePass** (`/api/v1/app/*`) | La app web/PWA | [`backend/openapi.yaml`](../backend/openapi.yaml) |
 | **Supabase** (RLS + RPC + Realtime) | El backend (con el token de cada usuario), el inicio de sesión y los paneles en vivo del supervisor | Este documento + `supabase/migrations/` |
 
 Desde 2026-11-10 la app llama a la API SafePass (ver `docs/DECISIONES.md`, D7). La API reenvía
@@ -52,6 +52,7 @@ evaluation_sessions (1) ── (0..1) evaluations
 | `access_passes` | SELECT | ídem | Volver a mostrar el pase vigente |
 | `rpc/start_evaluation()` → `uuid` | POST | trabajador activo | Abre la sesión del test (aplica descansos y autorizaciones) |
 | `rpc/submit_evaluation(p_session_id, p_breakdown)` → evaluación | POST | dueño de la sesión | Registra el resultado; **idempotente por sesión** (`replayed: true` en el eco) |
+| `rpc/list_flagged_evaluations()` → `[{evaluation_id, flags}]` | POST | supervisor | Marcas de resultado atípico de la evaluación vigente de cada trabajador (el trabajador no las ve) |
 | `rpc/issue_access_pass()` → pase | POST | trabajador activo | Emite o recupera el pase vigente (idempotente) |
 | `rpc/validate_pass(p_code)` → estado | POST | supervisor | Valida un pase: `valid` · `expired` · `revoked` · `invalid` |
 | `rpc/start_authorized_retest(p_decision_id)` | POST | trabajador | Consume un re-test autorizado tras el descanso |
@@ -81,18 +82,19 @@ No hay escritura directa del cliente en `evaluations`, `workers` ni `access_pass
 | `NOT_ALLOWED` | Rol insuficiente | No | "No tienes permiso…" |
 | Red / timeout (15 s) | Sin señal o servidor lento | **Sí, automático** con espera creciente (1 s, 3 s, 7 s) al enviar el test | "Sin conexión…" + botón **Reintentar envío** |
 
-## 4. Contrato REST Express (resumen)
+## 4. Contrato de la API SafePass (resumen)
 
-Ver la especificación completa en [`backend/openapi.yaml`](../backend/openapi.yaml). Puntos clave:
-`/api/v1` · JWT Bearer para personal y sesión de tótem · `X-Totem-Key` para abrir sesión ·
-paginación `page`/`pageSize` (tope 100) con `{ data, meta }` · `201 + Location` al crear ·
-`POST /evaluations` idempotente por sesión (`200` + `replayed: true` en el reintento) ·
-`429 + Retry-After` · errores `{ error: { code, message, details, requestId } }`.
+Especificación completa en [`backend/openapi.yaml`](../backend/openapi.yaml). Puntos clave:
+`/api/v1/app/*` · `Authorization: Bearer <token de Supabase>` · cuerpos con esquema estricto ·
+`201 + Location` al crear · `POST /app/evaluation-sessions/{id}/result` idempotente por sesión
+(`200` + `replayed: true` en el reintento) · `429 + Retry-After` · `503 + Retry-After` si Supabase
+no responde · errores `{ error: { code, message, details, requestId } }`.
 
 ## 5. Changelog
 
 | Fecha | Cambio | ¿Rompe? |
 |---|---|---|
+| 2026-11-12 | Se eliminan las rutas del tótem y del panel HSE (`/auth/*`, `/workers`, `/evaluations`) y su base propia; la API queda solo con `/app/*` (OpenAPI 2.0.0). Se agrega la marca `flags` en las evaluaciones | Sí, pero esas rutas nunca estuvieron en uso (sin clientes) |
 | 2026-11-10 | Nueva API de la app `/api/v1/app/*` (OpenAPI 1.2.0); la app deja de llamar directo a las tablas y RPC de Supabase | No para clientes externos (rutas nuevas) |
 | 2026-11-10 | `submit_evaluation` devuelve la misma evaluación en reintentos (`replayed`) | No (campo nuevo) |
 | 2026-11-10 | API REST: `POST /evaluations` responde `200` + eco en reintentos (antes `409`) y agrega `Location`; `Location` de `POST /workers` corregido a `/api/v1/workers/{id}` | Sí para quien esperaba 409 (sin clientes en producción) |

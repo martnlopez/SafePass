@@ -16,11 +16,13 @@ import type {
  * el backend no se salta ningún control ni duplica reglas (fuente única de verdad).
  *
  * Índice (mini-contrato interno):
- *  verifyAccessToken · profile · evaluations · latestEvaluation · latestDecision · currentPass
+ *  ping · verifyAccessToken · profile · evaluations · latestEvaluation · latestDecision · currentPass
  *  startEvaluation · submitEvaluation · issuePass · validatePass
  *  createDecision · markDecisionSeen · startAuthorizedRetest
  */
 export interface AppDataRepository {
+  /** Comprueba que el servicio de autenticación de Supabase responde (lanza si no) */
+  ping(): Promise<void>
   /** Verifica el token de Supabase Auth; devuelve el id del usuario o null si no es válido */
   verifyAccessToken(token: string): Promise<string | null>
   profile(token: string, userId: string): Promise<AppProfile | null>
@@ -131,6 +133,16 @@ export class SupabaseAppDataRepository implements AppDataRepository {
       global: { fetch: this.fetchWithTimeout, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) },
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     })
+  }
+
+  async ping(): Promise<void> {
+    let res: Response
+    try {
+      res = await this.fetchWithTimeout(`${this.url}/auth/v1/health`, { headers: { apikey: this.publishableKey } })
+    } catch (err) {
+      throw translate(err as Error)
+    }
+    if (!res.ok) throw new UpstreamUnavailableError(`HTTP ${res.status}`)
   }
 
   async verifyAccessToken(token: string): Promise<string | null> {

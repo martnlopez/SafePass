@@ -9,7 +9,7 @@ export class HealthController {
     res.status(200).json(this.health.liveness())
   }
 
-  /** GET /health/ready — la base de datos responde */
+  /** GET /health/ready — Supabase (datos y login) responde */
   readiness = async (_req: Request, res: Response) => {
     const result = await this.health.readiness()
     res.status(result.status === "ok" ? 200 : 503).json(result)

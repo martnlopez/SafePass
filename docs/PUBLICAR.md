@@ -92,5 +92,3 @@ pase y valídalo con la cuenta supervisora.
 - Dominio propio: se agrega en Cloudflare Pages (**Dominios personalizados**) y luego en
   `CORS_ORIGINS` y en Turnstile.
 - PIN distinto por persona antes de usarlo con trabajadores reales.
-- La base propia del backend (`DATABASE_URL`) no se usa en este despliegue: las rutas del tótem
-  y del panel HSE responden 503.

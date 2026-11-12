@@ -20,13 +20,13 @@ export function createApp(container: Container): Express {
   // Cabeceras de seguridad (CSP, HSTS, noSniff, frameguard, etc.)
   app.use(helmet())
 
-  // CORS restringido a los orígenes de CORS_ORIGINS. Sin header Origin (tótem nativo, curl) no aplica CORS.
+  // CORS restringido a los orígenes de CORS_ORIGINS. Sin header Origin (curl, servidor a servidor) no aplica CORS.
   const allowed = new Set(config.CORS_ORIGINS)
   app.use(
     cors({
       origin: (origin, callback) => callback(null, !origin || allowed.has(origin)),
-      methods: ["GET", "POST", "PUT", "DELETE"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-Totem-Key", "X-Request-Id"],
+      methods: ["GET", "POST", "PATCH"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
       exposedHeaders: ["X-Request-Id", "Retry-After", "RateLimit", "RateLimit-Policy", "Location"],
       maxAge: 600,
     }),

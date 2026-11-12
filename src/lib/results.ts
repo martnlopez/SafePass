@@ -132,7 +132,7 @@ interface WorkerRow {
 }
 
 /** Fila del panel: perfil del trabajador + su último resultado */
-function toPanelRow(worker: WorkerRow, latest: StoredResult): Evaluation {
+function toPanelRow(worker: WorkerRow, latest: StoredResult, flags: string[] | undefined): Evaluation {
   return {
     id: worker.ficha_id,
     workerId: worker.id,
@@ -145,20 +145,25 @@ function toPanelRow(worker: WorkerRow, latest: StoredResult): Evaluation {
     time: formatCompletedTime(latest.completedAt),
     completedAt: latest.completedAt,
     ...(latest.breakdown ? { breakdown: breakdownFromResult(latest.breakdown), live: true } : {}),
+    ...(flags && flags.length > 0 ? { flags } : {}),
   }
 }
 
 async function fetchPanelRows(): Promise<Evaluation[]> {
-  const [workers, latest] = await Promise.all([
+  const [workers, latest, flagged] = await Promise.all([
     supabase.from("workers").select("id, ficha_id, full_name, position, company, shift").order("ficha_id").returns<WorkerRow[]>(),
     supabase.from("latest_evaluations").select(COLUMNS).returns<EvaluationRow[]>(),
+    // Las marcas son una ayuda: si no se pueden leer, el panel funciona igual, sin ellas
+    supabase.rpc("list_flagged_evaluations"),
   ])
   if (workers.error) throw new Error(describeError(workers.error))
   if (latest.error) throw new Error(describeError(latest.error))
   const byWorker = new Map((latest.data ?? []).map((r) => [r.worker_id, toResult(r)]))
+  const flaggedRows = (flagged.data ?? []) as { evaluation_id: string; flags: string[] }[]
+  const flagsByEvaluation = new Map(flaggedRows.map((f) => [f.evaluation_id, f.flags]))
   return (workers.data ?? [])
     .filter((w) => byWorker.has(w.id))
-    .map((w) => toPanelRow(w, byWorker.get(w.id)!))
+    .map((w) => toPanelRow(w, byWorker.get(w.id)!, flagsByEvaluation.get(byWorker.get(w.id)!.id)))
     .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0))
 }
 

@@ -23,8 +23,8 @@ trabaja sobre **Supabase** (organización SafePass, proyecto `Safepass`) con el 
 usuario: las reglas de seguridad (RLS) y de negocio viven en la base. El inicio de sesión
 (Ficha ID + PIN) es de Supabase Auth.
 
-1. Backend: en `backend/`, copia `.env.example` como `.env`, completa los secretos
-   (`npm run keys:generate`), `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`, y ejecuta
+1. Backend: en `backend/`, copia `.env.example` como `.env`, completa
+   `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`, y ejecuta
    `npm install` y `npm run dev` → http://localhost:3000
 2. Frontend: en esta carpeta, `npm install`; copia `.env.example` como `.env.local` y completa
    `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` y `VITE_API_URL`
@@ -55,6 +55,9 @@ Reglas que aplica el servidor, aunque se modifique el frontend:
 - El supervisor valida el pase en el servidor (`validate_pass`): queda **revocado** si la cuenta
   se desactivó, si hubo una decisión posterior a su emisión o si una evaluación posterior no fue APTA.
 - Ningún supervisor puede registrar decisiones sobre su propia evaluación.
+- El servidor marca como **"Revisar · resultado atípico"** los resultados raros (batería en menos de
+  2 min, puntajes idénticos, textos que no cuadran con los puntajes…). Es una señal solo para el
+  supervisor: no bloquea al trabajador.
 
 Documentación técnica: [contrato de la API y tabla de errores](./docs/CONTRATO-API.md),
 [decisiones de arquitectura](./docs/DECISIONES.md) y [OpenAPI del backend](./backend/openapi.yaml).

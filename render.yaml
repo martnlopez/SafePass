@@ -30,14 +30,4 @@ services:
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
-
-      # Secretos generados por Render (256 bits en base64, distintos entre sí)
-      - key: JWT_SECRET
-        generateValue: true
-      - key: PIN_PEPPER
-        generateValue: true
-      - key: FIELD_ENCRYPTION_KEY
-        generateValue: true
-      - key: BLIND_INDEX_KEY
-        generateValue: true
-      # DATABASE_URL no se define: el backend atiende solo la API de la app (Supabase)
+      # No hay secretos propios: la API trabaja con el token de cada usuario de Supabase

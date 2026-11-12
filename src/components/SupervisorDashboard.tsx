@@ -3,6 +3,7 @@ import { STATUS_META, type Evaluation, type Status } from "../lib/data"
 import { isDecisionCurrent, useDecisions } from "../lib/decisions"
 import { useEvaluations } from "../lib/results"
 import DecisionTag from "./DecisionTag"
+import { flagText } from "../lib/flags"
 import StatusBadge from "./StatusBadge"
 import ManageModal from "./ManageModal"
 import Logo from "./Logo"
@@ -241,6 +242,14 @@ export default function SupervisorDashboard({ onBack }: { onBack: () => void }) 
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={e.status} />
+                          {e.flags && (
+                            <p
+                              title={e.flags.map(flagText).join("\n")}
+                              className="mt-1.5 inline-block rounded border border-[color:var(--color-semi)] px-1.5 py-0.5 font-mono text-[10px] font-700 uppercase tracking-wider text-[color:var(--color-semi)]"
+                            >
+                              Revisar · resultado atípico
+                            </p>
+                          )}
                           <DecisionTag decision={decisionFor(e)} className="mt-1.5" />
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">

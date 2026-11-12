@@ -47,10 +47,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      # postinstall ejecuta "prisma generate"; no necesita una base de datos real
       - run: npm ci
-        env:
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
       - run: npm run typecheck
-      - name: Pruebas (unitarias, contrato y fronteras entre capas)
+      - name: Pruebas (contrato y fronteras entre capas)
         run: npm test

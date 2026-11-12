@@ -82,6 +82,8 @@ export interface Evaluation {
   breakdown?: TestFault[]
   /** true = evaluación rendida en la app (con desglose real) */
   live?: boolean
+  /** Marcas de resultado atípico del servidor (solo las ve el supervisor); ausente = sin sospecha */
+  flags?: string[]
 }
 
 // Auto-formato de Ficha ID: 3 letras + "-" + hasta 4 dígitos (ej. TRB-0512).

@@ -1,21 +1,19 @@
-import type { HealthRepository } from "../repositories/health.repository.js"
-import { DatabaseNotConfiguredError } from "../repositories/unavailable.repository.js"
+import type { AppDataRepository } from "../repositories/app-data.repository.js"
 
 export class HealthService {
-  constructor(private readonly health: HealthRepository) {}
+  constructor(private readonly data: AppDataRepository) {}
 
   liveness() {
     return { status: "ok" as const, uptimeSeconds: Math.round(process.uptime()) }
   }
 
-  /** `disabled` = el servidor corre sin base propia (solo la API de la app sobre Supabase) */
-  async readiness(): Promise<{ status: "ok" | "unavailable"; database: "up" | "down" | "disabled" }> {
+  /** Supabase (datos y login) responde */
+  async readiness(): Promise<{ status: "ok" | "unavailable"; supabase: "up" | "down" }> {
     try {
-      await this.health.ping()
-      return { status: "ok", database: "up" }
-    } catch (err) {
-      if (err instanceof DatabaseNotConfiguredError) return { status: "ok", database: "disabled" }
-      return { status: "unavailable", database: "down" }
+      await this.data.ping()
+      return { status: "ok", supabase: "up" }
+    } catch {
+      return { status: "unavailable", supabase: "down" }
     }
   }
 }
