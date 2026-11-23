@@ -122,6 +122,17 @@ export function formatCompletedTime(ts: number, withSeconds = false): string {
   return today ? time : `${d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" })} ${time}`
 }
 
+/** Horario del turno de día (hora de Chile): el test se rinde antes de entrar, así que 06–18 = Día, 18–06 = Noche */
+const DAY_SHIFT_START_HOUR = 6
+const DAY_SHIFT_END_HOUR = 18
+const chileHour = new Intl.DateTimeFormat("es-CL", { hour: "numeric", hourCycle: "h23", timeZone: "America/Santiago" })
+
+/** Turno al que corresponde una evaluación según la hora en que se rindió */
+export function shiftAt(ts: number): "Día" | "Noche" {
+  const hour = Number(chileHour.format(new Date(ts)))
+  return hour >= DAY_SHIFT_START_HOUR && hour < DAY_SHIFT_END_HOUR ? "Día" : "Noche"
+}
+
 interface WorkerRow {
   id: string
   ficha_id: string
@@ -139,7 +150,8 @@ function toPanelRow(worker: WorkerRow, latest: StoredResult, flags: string[] | u
     name: worker.full_name,
     role: worker.position,
     company: worker.company ?? "Sin empresa",
-    shift: worker.shift,
+    // El turno se toma de la hora del test, no del turno fijo de la ficha
+    shift: shiftAt(latest.completedAt),
     score: latest.score,
     status: latest.status,
     time: formatCompletedTime(latest.completedAt),
