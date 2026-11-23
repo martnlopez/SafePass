@@ -91,6 +91,8 @@ Si el envío falla por red, el resultado queda **en memoria** y el trabajador pu
 para el siguiente trabajador (Ley 19.628 / 21.719).
 **Reconsideraríamos si:** la faena opera sin señal por turnos completos; entonces, una cola
 cifrada por trabajador y borrada al cerrar sesión.
+**Actualización 2026-11-23 (D10):** el resultado sigue solo en memoria, pero ahora se reenvía
+solo al volver la señal y el servidor conserva su hora real de término (plazo de 2 h).
 
 ## D8 · Se elimina el sistema antiguo del tótem y el panel HSE — 2026-11-12
 
@@ -123,6 +125,67 @@ datos crudos (reescribir los 5 tests) o un dispositivo administrado. Mientras ta
 como "Revisar"; no bloquea a nadie, porque un falso positivo no debe impedir la entrada a faena.
 Las marcas solo las ve el supervisor, para que el trabajador no aprenda dónde está el umbral.
 **Reconsideraríamos si:** hay evidencia de abuso real; entonces, puntuar en el servidor.
+
+## D10 · Cortes de señal: envío diferido en memoria (no modo sin señal) — 2026-11-23
+
+**Contexto.** En faena la señal se corta. Hasta ahora, si se cortaba después de empezar el test, el
+resultado quedaba en memoria con 3 reintentos y un botón manual, pero el servidor fijaba la hora del
+test **al llegar** el envío y rechazaba lo que llegara más de 30 min después de empezar: un test
+hecho a las 08:10 que llegaba a las 08:50 se perdía, o quedaba con una hora que no era la real (y
+con eso cambiaban el turno, el descanso de SEMI APTO y la vigencia de 12 h del pase).
+
+**Opciones evaluadas.**
+
+| Criterio | 1 · Envío diferido (elegida) | 2 · Tótem que opera horas sin señal | 3 · Servidor local en faena |
+|---|---|---|---|
+| Qué resuelve | Cortes durante o después del test | Turnos completos sin señal | Faena aislada completa |
+| Inicio de sesión sin señal | No | Sí: credencial QR firmada + PIN verificado en el tótem | Sí: autenticación local |
+| Quién decide APTO y firma el pase | El servidor (como hoy) | El tótem, sin conexión | El servidor local |
+| Datos de salud en el equipo | Solo en memoria hasta enviarse | Cola cifrada en el tótem | Base de datos en faena |
+| Riesgos nuevos | Ninguno relevante (ver análisis) | Robo del tótem (llave y cola), PIN de 6 dígitos atacable sin conexión, descansos y reintentos aplicables solo dentro de cada tótem, pases provisorios falsificables si se filtra la llave | Un servidor más que proteger, parchar y respaldar en terreno; sincronización y conflictos |
+| Requisitos | Ninguno | Tótems administrados en modo kiosco, revocación de equipos, validador con firmas | Hardware, instalación y soporte en faena |
+| Esfuerzo | 1–2 días | 2–3 semanas | Semanas, más operación continua |
+
+**Elegido (por ahora): opción 1.** Es la que cubre el caso real de hoy (la señal se corta a ratos)
+sin mover la autoridad fuera del servidor. Las opciones 2 y 3 cambian el modelo de seguridad: el
+tótem o un servidor en faena pasan a decidir quién entra, y eso exige equipos administrados,
+llaves, revocación y operación en terreno que el proyecto aún no tiene. Hacerlas a medias
+subiría el riesgo, que es justo lo que se quiere evitar.
+
+**Cómo funciona.**
+- El inicio de sesión y el comienzo del test siguen requiriendo señal (los emite el servidor).
+- Si la señal se corta, el resultado queda **solo en memoria** (nunca en el disco del tótem, D6) y la
+  app lo reenvía sola al volver la conexión y cada 20 s. Si la persona intenta salir, se le avisa
+  que se perderá. Mientras está pendiente no se puede generar el pase ni reintentar el test.
+- La app informa **cuánto duró** el test, medido con un reloj monotónico (no con la hora del
+  equipo). El servidor fija la hora de término = inicio de la sesión (hora del servidor) + esa
+  duración, acotada a 60–1800 s y nunca mayor que el tiempo real transcurrido. Guarda aparte la
+  hora de llegada (`received_at`); el panel del supervisor ordena por llegada (lo que llegó tarde
+  queda arriba) y avisa "Recibido HH:MM · sin señal".
+- El envío se acepta hasta **2 h** después de abrir la sesión. Pasado eso, hay que repetir el test.
+
+**Por qué no sube el riesgo.** El cliente solo puede mover la hora de término **dentro de su propia
+sesión** y nunca después de la llegada, y adelantarla no le da ventaja:
+- El pase APTO vence antes, nunca después.
+- Los descansos (2 min entre tests y 5 min tras SEMI APTO) se miden con la **hora de llegada**, que
+  fija el servidor, no con la de término. Así no se pueden acortar declarando una duración menor.
+  Costo aceptado: si un SEMI APTO llega tarde, el descanso corre desde que llegó.
+- **Solo vale la sesión de test más reciente:** abrir una nueva invalida las anteriores sin envío, así
+  que no se pueden tener sesiones abiertas de antemano para elegir la hora.
+- Un NO APTO sigue exigiendo la decisión del supervisor antes de cualquier otro test.
+- El puntaje lo sigue calculando el servidor y las marcas de D9 usan la duración acotada (fingir
+  240 s exige que pasen 240 s reales).
+- Al salir sin señal se borra la sesión del equipo aunque no se pueda avisar al servidor, y lo que
+  responda tarde después de salir se descarta: el siguiente trabajador no ve el resultado anterior.
+
+Revisión independiente del cambio (2026-11-23): sin caminos para extender el pase, saltar la
+autorización del supervisor ni esquivar las marcas; los hallazgos (descansos medidos con la hora de
+término, sesiones múltiples, cierre de sesión sin señal, resultado de otra persona en pantalla tras
+salir, reintentos sin plazo, orden del panel) se corrigieron antes de publicar.
+
+**Reconsideraríamos si:** hay faenas con turnos completos sin señal (opción 2, empezando por tótems
+administrados y credenciales firmadas); el plazo de 2 h no alcanza de forma medida; o la empresa
+cliente ya opera servidores en faena (opción 3).
 
 ## Deuda conocida
 

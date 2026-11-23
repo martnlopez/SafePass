@@ -71,5 +71,9 @@ export async function fetchProfile(): Promise<WorkerProfile | null> {
 }
 
 export async function signOut(): Promise<void> {
-  await supabase.auth.signOut()
+  // Con señal se revoca también en el servidor (si falla, se sigue igual)
+  if (navigator.onLine) await supabase.auth.signOut().catch(() => undefined)
+  // Siempre se borra la sesión del equipo, sin depender de la red: sin señal, el cierre global
+  // falla y conserva la sesión, lo que dejaría los tokens de esta persona en el tótem compartido
+  await supabase.auth.signOut({ scope: "local" })
 }

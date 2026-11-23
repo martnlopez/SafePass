@@ -15,6 +15,8 @@ export interface StoredResult {
   completedAt: number
   /** null en resultados cargados como datos iniciales (sin desglose real) */
   breakdown: BatteryResult["breakdown"] | null
+  /** Hora de llegada al servidor (ms); solo la trae el panel del supervisor */
+  receivedAt?: number
 }
 
 interface EvaluationRow {
@@ -23,10 +25,11 @@ interface EvaluationRow {
   score: number
   status: Status
   completed_at: string
+  received_at: string | null
   breakdown: BatteryResult["breakdown"] | null
 }
 
-const COLUMNS = "id, worker_id, score, status, completed_at, breakdown"
+const COLUMNS = "id, worker_id, score, status, completed_at, received_at, breakdown"
 
 function toResult(row: EvaluationRow): StoredResult {
   return {
@@ -36,6 +39,7 @@ function toResult(row: EvaluationRow): StoredResult {
     status: row.status,
     completedAt: new Date(row.completed_at).getTime(),
     breakdown: row.breakdown,
+    ...(row.received_at ? { receivedAt: new Date(row.received_at).getTime() } : {}),
   }
 }
 
@@ -46,6 +50,7 @@ interface ApiEvaluation {
   score: number
   status: Status
   completedAt: string
+  receivedAt?: string | null
   breakdown: BatteryResult["breakdown"] | null
   replayed?: boolean
 }
@@ -58,6 +63,7 @@ function fromApi(e: ApiEvaluation): StoredResult {
     status: e.status,
     completedAt: new Date(e.completedAt).getTime(),
     breakdown: e.breakdown,
+    ...(e.receivedAt ? { receivedAt: new Date(e.receivedAt).getTime() } : {}),
   }
 }
 
@@ -78,14 +84,16 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * Registra la evaluación terminada de la sesión; puntaje, estado y hora los fija el servidor.
  * El envío es idempotente por sesión (el servidor devuelve la misma evaluación si ya llegó),
  * así que ante un corte de red se reintenta solo con espera creciente.
+ * durationSeconds: cuánto duró el test; con ella el servidor conserva la hora real de término
+ * aunque el envío llegue tarde (hasta 2 h, ver D10).
  */
-export async function recordResult(sessionId: string, result: BatteryResult): Promise<StoredResult> {
+export async function recordResult(sessionId: string, result: BatteryResult, durationSeconds: number): Promise<StoredResult> {
   let lastError: unknown = null
   for (let attempt = 0; attempt <= SUBMIT_RETRY_DELAYS_MS.length; attempt++) {
     try {
       const saved = await api<ApiEvaluation>(`/app/evaluation-sessions/${encodeURIComponent(sessionId)}/result`, {
         method: "POST",
-        body: { breakdown: result.breakdown },
+        body: { breakdown: result.breakdown, durationSeconds },
       })
       return fromApi(saved)
     } catch (err) {
@@ -133,6 +141,9 @@ export function shiftAt(ts: number): "Día" | "Noche" {
   return hour >= DAY_SHIFT_START_HOUR && hour < DAY_SHIFT_END_HOUR ? "Día" : "Noche"
 }
 
+/** Desde cuánto retraso entre término y llegada se avisa en el panel (un envío normal tarda segundos) */
+const LATE_ARRIVAL_MS = 2 * 60_000
+
 interface WorkerRow {
   id: string
   ficha_id: string
@@ -156,6 +167,11 @@ function toPanelRow(worker: WorkerRow, latest: StoredResult, flags: string[] | u
     status: latest.status,
     time: formatCompletedTime(latest.completedAt),
     completedAt: latest.completedAt,
+    receivedAt: latest.receivedAt ?? latest.completedAt,
+    // Llegó con retraso (corte de señal): el supervisor ve cuándo se recibió
+    ...(latest.receivedAt && latest.receivedAt - latest.completedAt > LATE_ARRIVAL_MS
+      ? { receivedTime: formatCompletedTime(latest.receivedAt) }
+      : {}),
     ...(latest.breakdown ? { breakdown: breakdownFromResult(latest.breakdown), live: true } : {}),
     ...(flags && flags.length > 0 ? { flags } : {}),
   }
@@ -176,8 +192,9 @@ async function fetchPanelRows(): Promise<Evaluation[]> {
   return (workers.data ?? [])
     .filter((w) => byWorker.has(w.id))
     .map((w) => toPanelRow(w, byWorker.get(w.id)!, flagsByEvaluation.get(byWorker.get(w.id)!.id)))
-    // Más recientes primero: lo último que llega al panel queda arriba
-    .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+    // Lo último que llega al panel queda arriba (un resultado que llegó tarde por falta de señal
+    // también, para que el supervisor no lo pase por alto)
+    .sort((a, b) => (b.receivedAt ?? b.completedAt ?? 0) - (a.receivedAt ?? a.completedAt ?? 0))
 }
 
 export interface PanelState {

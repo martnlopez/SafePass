@@ -46,7 +46,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   ACCOUNT_DISABLED: "Tu cuenta no está habilitada. Contacta a tu supervisor.",
   EVALUATION_SESSION_INVALID: "La sesión de evaluación ya no es válida. Vuelve a iniciar la evaluación.",
   EVALUATION_SESSION_REQUIRED: "La sesión de evaluación ya no es válida. Vuelve a iniciar la evaluación.",
-  EVALUATION_SESSION_EXPIRED: "La evaluación tardó demasiado (más de 30 minutos). Vuelve a iniciarla.",
+  EVALUATION_SESSION_EXPIRED: "El resultado no se pudo enviar a tiempo (el test duró más de 30 minutos o pasaron más de 2 horas sin señal). Vuelve a iniciar la evaluación.",
   EVALUATION_TOO_FAST: "La evaluación terminó demasiado rápido para ser válida. Vuelve a rendirla con calma.",
   TOO_MANY_SESSIONS: "Demasiados intentos en la última hora. Avisa a tu supervisor.",
   SELF_DECISION_NOT_ALLOWED: "No puedes registrar una decisión sobre tu propia evaluación. Debe hacerlo otro supervisor.",

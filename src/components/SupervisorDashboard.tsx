@@ -264,6 +264,14 @@ export default function SupervisorDashboard({ onBack }: { onBack: () => void }) 
                           ) : (
                             <span className="text-[color:var(--color-fog)]">{e.time}</span>
                           )}
+                          {e.receivedTime && (
+                            <p
+                              title="El test terminó a la hora indicada, pero el resultado llegó más tarde por un corte de señal"
+                              className="mt-1 text-[10px] text-[color:var(--color-semi)]"
+                            >
+                              Recibido {e.receivedTime} · sin señal
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button

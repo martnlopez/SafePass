@@ -64,6 +64,8 @@ export default function TestResults({
   initialPass?: AccessPass | null
 }) {
   const { score, breakdown, fichaId } = result
+  // Error de red con el resultado guardado en memoria: se reenvía solo (App)
+  const pending = saveError !== null && onResend !== undefined
   const status = scoreToStatus(score)
   const m = STATUS_META[status]
   const [pass, setPass] = useState<AccessPass | null>(initialPass)
@@ -72,7 +74,7 @@ export default function TestResults({
   // Temporizador solo en SEMI APTO (5 min desde la hora de finalización que fija el servidor).
   // NO APTO queda a criterio del supervisor: la base registra la "Revisión pendiente".
   const completedAt = result.completedAt ?? Date.now()
-  const blockUntil = status === "semi" ? completedAt + BLOCK_MS : 0
+  const blockUntil = status === "semi" ? (result.receivedAt ?? completedAt) + BLOCK_MS : 0
   const finishedAt = formatCompletedTime(completedAt)
 
   async function generatePass() {
@@ -134,24 +136,44 @@ export default function TestResults({
             </p>
           </div>
 
-          {saveError && (
-            <div role="alert" className="mt-5 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
-              <p>
-                <span className="font-700 text-[color:var(--color-no)]">No se pudo guardar el resultado.</span> {saveError}{" "}
-                {onResend ? "Tu resultado sigue guardado en este equipo: reintenta el envío cuando haya señal." : "Avisa a tu supervisor."}
+          {/* Sin señal: el resultado espera en memoria y se envía solo al volver la conexión */}
+          {pending && (
+            <div role="status" className="mt-5 rounded-xl border border-[color:var(--color-semi)]/50 bg-[color:var(--color-semi)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
+              <p className="flex items-center gap-2 font-700 text-[color:var(--color-semi)]">
+                <span className="alert-pulse h-2 w-2 rounded-full bg-[color:var(--color-semi)]" />
+                Resultado pendiente de envío
               </p>
-              {onResend && (
-                <button
-                  onClick={onResend}
-                  className="mt-3 h-12 w-full rounded-lg border border-[color:var(--color-no)] font-700 uppercase tracking-wide text-white transition-colors hover:bg-[color:var(--color-no)]/20"
-                >
-                  Reintentar envío
-                </button>
-              )}
+              <p className="mt-1">
+                No hay conexión con el servidor. Tu resultado quedó en este equipo y se enviará solo cuando vuelva
+                la señal (hasta 2 horas después de empezar el test). El puntaje es provisorio hasta que el servidor
+                lo confirme. <span className="font-700">No cierres la sesión ni apagues el equipo.</span>
+              </p>
+              <button
+                onClick={onResend}
+                className="mt-3 h-12 w-full rounded-lg border border-[color:var(--color-semi)] font-700 uppercase tracking-wide text-white transition-colors hover:bg-[color:var(--color-semi)]/20"
+              >
+                Reintentar ahora
+              </button>
+              <button
+                onClick={onDone}
+                className="mt-2 h-10 w-full rounded-lg font-mono text-xs uppercase tracking-wider text-[color:var(--color-fog)] transition-colors hover:text-white"
+              >
+                Salir sin enviar
+              </button>
             </div>
           )}
 
-          {/* Action button */}
+          {saveError && !pending && (
+            <div role="alert" className="mt-5 rounded-xl border border-[color:var(--color-no)]/40 bg-[color:var(--color-no)]/10 px-4 py-3 text-sm text-[color:var(--color-mist)]">
+              <p>
+                <span className="font-700 text-[color:var(--color-no)]">No se pudo guardar el resultado.</span> {saveError}{" "}
+                Avisa a tu supervisor.
+              </p>
+            </div>
+          )}
+
+          {/* Action button (oculto mientras el resultado no llega al servidor) */}
+          {!pending && (
           <div className="fade-up mt-6" style={{ animationDelay: "120ms" }}>
             {status === "apto" && (
               <>
@@ -192,6 +214,7 @@ export default function TestResults({
               </button>
             )}
           </div>
+          )}
         </div>
 
         {/* ── Columna derecha: desglose por prueba + bloque de estado ── */}

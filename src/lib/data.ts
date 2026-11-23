@@ -78,6 +78,10 @@ export interface Evaluation {
   status: Status
   /** Momento exacto de finalización (ms) */
   completedAt?: number
+  /** Hora de llegada al servidor (ms); el panel ordena por ella para que lo recién llegado quede arriba */
+  receivedAt?: number
+  /** Hora de llegada formateada, solo si llegó con retraso por un corte de señal */
+  receivedTime?: string
   /** Desglose real por prueba (ausente en los datos iniciales cargados en la base) */
   breakdown?: TestFault[]
   /** true = evaluación rendida en la app (con desglose real) */
@@ -116,6 +120,8 @@ export interface BatteryResult {
   breakdown: { key: TestKey; name: string; score: number; detail: string }[]
   /** Hora de finalización fijada por el servidor (ms), una vez guardado */
   completedAt?: number
+  /** Hora de llegada al servidor (ms): desde aquí corre el descanso de SEMI APTO (D10) */
+  receivedAt?: number
 }
 
 // z-score derived from global score against a modeled baseline (µ=78, σ=11)
