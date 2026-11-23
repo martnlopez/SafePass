@@ -164,7 +164,8 @@ async function fetchPanelRows(): Promise<Evaluation[]> {
   return (workers.data ?? [])
     .filter((w) => byWorker.has(w.id))
     .map((w) => toPanelRow(w, byWorker.get(w.id)!, flagsByEvaluation.get(byWorker.get(w.id)!.id)))
-    .sort((a, b) => (a.completedAt ?? 0) - (b.completedAt ?? 0))
+    // Más recientes primero: lo último que llega al panel queda arriba
+    .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
 }
 
 export interface PanelState {
