@@ -1,4 +1,6 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import UpdateBanner from "./components/UpdateBanner"
+import { useAppUpdate } from "./lib/appUpdate"
 import WorkerLogin from "./components/WorkerLogin"
 import WorkerDashboard from "./components/WorkerDashboard"
 import CognitiveTest from "./components/CognitiveTest"
@@ -38,6 +40,14 @@ export default function App() {
   const [activePass, setActivePass] = useState<AccessPass | null>(null)
   // Resultado terminado que no se pudo guardar (p. ej. sin señal), pendiente de reenvío
   const [unsaved, setUnsaved] = useState<BatteryResult | null>(null)
+  const { updateReady, applyUpdate } = useAppUpdate()
+
+  // Versión nueva: se aplica sola solo en el login, sin nadie dentro (nunca durante un test).
+  // Con sesión de trabajador abierta espera a que vuelva al login; el supervisor ve un aviso.
+  const onIdleLogin = mode === "worker" && view === "login"
+  useEffect(() => {
+    if (updateReady && onIdleLogin) applyUpdate()
+  }, [updateReady, onIdleLogin, applyUpdate])
 
   // Cierra la sesión de Supabase y vuelve al login (trabajador o supervisor)
   async function logout() {
@@ -139,14 +149,19 @@ export default function App() {
 
   // El área de supervisión solo es accesible autenticándose con una ficha de rol supervisor
   if (mode === "supervisor") {
-    if (supView === "dashboard") return <SupervisorDashboard onBack={() => setSupView("menu")} />
-    if (supView === "validate") return <PassValidator onBack={() => setSupView("menu")} />
     return (
-      <SupervisorMenu
-        onDashboard={() => setSupView("dashboard")}
-        onValidate={() => setSupView("validate")}
-        onLogout={() => void logout()}
-      />
+      <>
+        {supView === "dashboard" && <SupervisorDashboard onBack={() => setSupView("menu")} />}
+        {supView === "validate" && <PassValidator onBack={() => setSupView("menu")} />}
+        {supView === "menu" && (
+          <SupervisorMenu
+            onDashboard={() => setSupView("dashboard")}
+            onValidate={() => setSupView("validate")}
+            onLogout={() => void logout()}
+          />
+        )}
+        {updateReady && <UpdateBanner onUpdate={applyUpdate} />}
+      </>
     )
   }
 

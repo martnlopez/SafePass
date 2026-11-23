@@ -51,7 +51,9 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       contentSecurityPolicy(env.VITE_SUPABASE_URL, env.VITE_API_URL, env.VITE_TURNSTILE_SITE_KEY),
       VitePWA({
-        registerType: 'autoUpdate',
+        // La versión nueva espera hasta que la app decida aplicarla (src/lib/appUpdate.ts):
+        // así nunca se recarga en medio de un test
+        registerType: 'prompt',
         manifest: {
           name: 'SAFEPASS - Control de Aptitud Cognitiva',
           short_name: 'SAFEPASS',
