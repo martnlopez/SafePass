@@ -244,6 +244,14 @@ components:
       required: [breakdown]
       properties:
         breakdown: { type: array, minItems: 5, maxItems: 5, items: { $ref: "#/components/schemas/BatteryEntry" } }
+        durationSeconds:
+          type: integer
+          minimum: 0
+          maximum: 7200
+          description: >-
+            Duración del test medida por la app. El servidor fija completedAt = inicio de la sesión + duración,
+            acotada a 60–1800 s y al tiempo real transcurrido. Permite enviar hasta 2 h después de abrir la
+            sesión (cortes de señal). Opcional: sin ella, completedAt es la hora de llegada.
     AppEvaluation:
       type: object
       properties:
@@ -251,7 +259,8 @@ components:
         workerId: { type: string, format: uuid }
         score: { type: integer }
         status: { $ref: "#/components/schemas/AppStatus" }
-        completedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time, description: "Hora de término del test (la fija el servidor)" }
+        receivedAt: { type: [string, "null"], format: date-time, description: "Hora de llegada al servidor; los descansos se cuentan desde aquí" }
         breakdown: { type: [array, "null"], items: { $ref: "#/components/schemas/BatteryEntry" } }
         replayed: { type: boolean }
     AppDecision:

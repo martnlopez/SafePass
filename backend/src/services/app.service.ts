@@ -85,8 +85,8 @@ export class AppService {
   }
 
   /** Idempotente por sesión: el reintento devuelve la misma evaluación con replayed = true */
-  submitEvaluation(user: AppUser, sessionId: string, breakdown: BatteryEntry[]) {
-    return this.call(() => this.data.submitEvaluation(user.token, sessionId, breakdown))
+  submitEvaluation(user: AppUser, sessionId: string, breakdown: BatteryEntry[], durationSeconds: number | null) {
+    return this.call(() => this.data.submitEvaluation(user.token, sessionId, breakdown, durationSeconds))
   }
 
   issuePass(user: AppUser) {

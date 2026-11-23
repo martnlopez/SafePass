@@ -41,6 +41,8 @@ export interface AppEvaluation {
   score: number
   status: AppStatus
   completedAt: string
+  /** Hora de llegada al servidor (null en filas anteriores a 2026-11-23 sin backfill) */
+  receivedAt: string | null
   breakdown: BatteryEntry[] | null
 }
 

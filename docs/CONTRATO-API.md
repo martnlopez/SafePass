@@ -51,7 +51,7 @@ evaluation_sessions (1) ── (0..1) evaluations
 | `decisions` | INSERT | supervisor activo, **no sobre sí mismo** | Registrar una decisión |
 | `access_passes` | SELECT | ídem | Volver a mostrar el pase vigente |
 | `rpc/start_evaluation()` → `uuid` | POST | trabajador activo | Abre la sesión del test (aplica descansos y autorizaciones) |
-| `rpc/submit_evaluation(p_session_id, p_breakdown)` → evaluación | POST | dueño de la sesión | Registra el resultado; **idempotente por sesión** (`replayed: true` en el eco) |
+| `rpc/submit_evaluation(p_session_id, p_breakdown, p_duration_seconds?)` → evaluación | POST | dueño de la sesión | Registra el resultado; **idempotente por sesión** (`replayed: true` en el eco). Con `p_duration_seconds` (60–1800 s, acotada al tiempo real) la hora de término es inicio + duración y el envío se acepta hasta 2 h después de abrir la sesión (D10); `received_at` guarda la hora de llegada |
 | `rpc/list_flagged_evaluations()` → `[{evaluation_id, flags}]` | POST | supervisor | Marcas de resultado atípico de la evaluación vigente de cada trabajador (el trabajador no las ve) |
 | `rpc/issue_access_pass()` → pase | POST | trabajador activo | Emite o recupera el pase vigente (idempotente) |
 | `rpc/validate_pass(p_code)` → estado | POST | supervisor | Valida un pase: `valid` · `expired` · `revoked` · `invalid` |
@@ -72,8 +72,8 @@ No hay escritura directa del cliente en `evaluations`, `workers` ni `access_pass
 | `SUPERVISOR_AUTHORIZATION_REQUIRED` | NO APTO u otra decisión pendiente | No | "Tu último resultado requiere una indicación…" |
 | `TOO_MANY_SESSIONS` | ≥ 10 sesiones en 1 h | No | "Demasiados intentos… avisa a tu supervisor." |
 | `EVALUATION_SESSION_INVALID` | Sesión ajena o inexistente | No: iniciar otra | "La sesión de evaluación ya no es válida…" |
-| `EVALUATION_TOO_FAST` | Envío < 60 s después de iniciar | No | "La evaluación terminó demasiado rápido…" |
-| `EVALUATION_SESSION_EXPIRED` | Envío > 30 min después de iniciar | No | "La evaluación tardó demasiado…" |
+| `EVALUATION_TOO_FAST` | Envío < 60 s después de iniciar, o duración informada < 60 s | No | "La evaluación terminó demasiado rápido…" |
+| `EVALUATION_SESSION_EXPIRED` | Envío > 2 h después de iniciar, o duración del test > 30 min (sin `durationSeconds`: envío > 30 min) | No | "La evaluación tardó demasiado…" |
 | `INVALID_BREAKDOWN` | Desglose con forma inválida | No | "El resultado llegó incompleto…" |
 | `RETEST_REST_PENDING` | Re-test antes de 15 min | Sí, tras el descanso | Cuenta regresiva |
 | `DECISION_NOT_FOUND` | Decisión inexistente o de otro tipo | No | "La decisión ya no está disponible." |

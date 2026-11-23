@@ -31,7 +31,13 @@ export interface AppDataRepository {
   latestDecision(token: string, userId: string): Promise<AppDecision | null>
   currentPass(token: string, userId: string, fichaId: string): Promise<AppPass | null>
   startEvaluation(token: string): Promise<string>
-  submitEvaluation(token: string, sessionId: string, breakdown: BatteryEntry[]): Promise<AppEvaluation & { replayed: boolean }>
+  /** durationSeconds null = app sin actualizar (la base usa el tiempo hasta la llegada) */
+  submitEvaluation(
+    token: string,
+    sessionId: string,
+    breakdown: BatteryEntry[],
+    durationSeconds: number | null,
+  ): Promise<AppEvaluation & { replayed: boolean }>
   issuePass(token: string): Promise<AppPass>
   validatePass(token: string, code: string): Promise<PassValidation>
   createDecision(token: string, input: { workerId: string; decision: AppDecisionType; note: string | null }): Promise<AppDecision>
@@ -39,7 +45,7 @@ export interface AppDataRepository {
   startAuthorizedRetest(token: string, decisionId: string): Promise<void>
 }
 
-const EVALUATION_COLUMNS = "id, worker_id, score, status, completed_at, breakdown"
+const EVALUATION_COLUMNS = "id, worker_id, score, status, completed_at, received_at, breakdown"
 const DECISION_COLUMNS =
   "id, worker_id, decision, note, decided_by_ficha, decided_at, evaluation_score, evaluation_status, seen_at, consumed_at"
 
@@ -53,6 +59,8 @@ function toEvaluation(r: Row): AppEvaluation {
     score: Number(r["score"]),
     status: r["status"] as AppEvaluation["status"],
     completedAt: new Date(String(r["completed_at"])).toISOString(),
+    // Hora de llegada (desde 2026-11-23); los descansos se cuentan desde aquí (D10)
+    receivedAt: r["received_at"] ? new Date(String(r["received_at"])).toISOString() : null,
     breakdown: (r["breakdown"] as BatteryEntry[] | null) ?? null,
   }
 }
@@ -228,9 +236,13 @@ export class SupabaseAppDataRepository implements AppDataRepository {
     return String(await run(this.client(token).rpc("start_evaluation")))
   }
 
-  async submitEvaluation(token: string, sessionId: string, breakdown: BatteryEntry[]) {
+  async submitEvaluation(token: string, sessionId: string, breakdown: BatteryEntry[], durationSeconds: number | null) {
     const row = await run(
-      this.client(token).rpc("submit_evaluation", { p_session_id: sessionId, p_breakdown: breakdown }),
+      this.client(token).rpc("submit_evaluation", {
+        p_session_id: sessionId,
+        p_breakdown: breakdown,
+        p_duration_seconds: durationSeconds,
+      }),
     ) as Row
     return { ...toEvaluation(row), replayed: row["replayed"] === true }
   }

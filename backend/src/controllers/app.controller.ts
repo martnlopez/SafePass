@@ -48,8 +48,8 @@ export class AppController {
   /** POST /app/evaluation-sessions/:id/result — 201 la primera vez, 200 con la misma evaluación en un reintento */
   submitResult = async (req: Request, res: Response) => {
     const { id } = IdParams.parse(req.params)
-    const { breakdown } = SubmitResultBody.parse(req.body)
-    const evaluation = await this.app.submitEvaluation(requireAppUser(req), id, breakdown)
+    const { breakdown, durationSeconds } = SubmitResultBody.parse(req.body)
+    const evaluation = await this.app.submitEvaluation(requireAppUser(req), id, breakdown, durationSeconds ?? null)
     res.status(evaluation.replayed ? 200 : 201).location(`${req.baseUrl}/evaluation-sessions/${id}/result`).json(evaluation)
   }
 

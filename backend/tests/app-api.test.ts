@@ -78,7 +78,11 @@ class FakeSupabase implements AppDataRepository {
     this.sessions.set(id, { worker: this.uid(token), startedAt: this.now })
     return id
   }
-  async submitEvaluation(token: string, sessionId: string, breakdown: BatteryEntry[]) {
+  /** Duración que llegó al repositorio en el último envío (undefined = no hubo envío) */
+  lastDuration: number | null | undefined = undefined
+
+  async submitEvaluation(token: string, sessionId: string, breakdown: BatteryEntry[], durationSeconds: number | null) {
+    this.lastDuration = durationSeconds
     const s = this.sessions.get(sessionId)
     if (!s || s.worker !== this.uid(token)) throw new DataRuleError("EVALUATION_SESSION_INVALID")
     if (s.evaluation) return { ...s.evaluation, replayed: true }
@@ -89,6 +93,7 @@ class FakeSupabase implements AppDataRepository {
       score: 90,
       status: "apto",
       completedAt: new Date().toISOString(),
+      receivedAt: new Date().toISOString(),
       breakdown,
     }
     return { ...s.evaluation, replayed: false }
@@ -164,6 +169,30 @@ describe("API de la app (/api/v1/app)", () => {
     const replay = await request(t.app).post(url).set(as("tok-worker")).send({ breakdown: BREAKDOWN })
     expect(replay.status).toBe(200)
     expect(replay.body).toMatchObject({ id: first.body.id, replayed: true })
+  })
+
+  it("envío diferido: la duración del test llega a la base; sin ella se envía null (app antigua)", async () => {
+    const start = await request(t.app).post("/api/v1/app/evaluation-sessions").set(as("tok-worker"))
+    const url = `/api/v1/app/evaluation-sessions/${start.body.id}/result`
+    fake.now += 50 * 60_000
+
+    const withDuration = await request(t.app).post(url).set(as("tok-worker")).send({ breakdown: BREAKDOWN, durationSeconds: 240 })
+    expect(withDuration.status).toBe(201)
+    expect(fake.lastDuration).toBe(240)
+
+    const other = await request(t.app).post("/api/v1/app/evaluation-sessions").set(as("tok-worker"))
+    fake.now += 120_000
+    await request(t.app).post(`/api/v1/app/evaluation-sessions/${other.body.id}/result`).set(as("tok-worker")).send({ breakdown: BREAKDOWN })
+    expect(fake.lastDuration).toBeNull()
+  })
+
+  it("aduana de entrada: durationSeconds negativa, decimal, texto o enorme → 400 sin llegar a la base", async () => {
+    const url = `/api/v1/app/evaluation-sessions/${randomUUID()}/result`
+    for (const durationSeconds of [-1, 1.5, "240", 99_999]) {
+      const res = await request(t.app).post(url).set(as("tok-worker")).send({ breakdown: BREAKDOWN, durationSeconds })
+      expect(res.status, `durationSeconds=${String(durationSeconds)}`).toBe(400)
+    }
+    expect(fake.lastDuration).toBeUndefined()
   })
 
   it("la sesión de otro usuario → 404", async () => {

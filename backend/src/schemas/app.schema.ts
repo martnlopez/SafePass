@@ -10,12 +10,18 @@ const BatteryEntry = z.strictObject({
   score: z.number().int().min(0).max(100),
 })
 
-/** Desglose de las 5 pruebas; el servidor recalcula puntaje y estado */
+/**
+ * Desglose de las 5 pruebas; el servidor recalcula puntaje y estado.
+ * durationSeconds: cuánto duró el test según la app. Con ella el servidor fija la hora de
+ * término aunque el envío llegue tarde por un corte de señal; la base la acota (60–1800 s y
+ * nunca más que el tiempo real desde que abrió la sesión). Opcional por compatibilidad.
+ */
 export const SubmitResultBody = z.strictObject({
   breakdown: z
     .array(BatteryEntry)
     .length(BATTERY_KEYS.length)
     .refine((items) => new Set(items.map((i) => i.key)).size === BATTERY_KEYS.length, "Cada prueba debe aparecer una vez"),
+  durationSeconds: z.number().int().min(0).max(7200).optional(),
 })
 
 export const CreateDecisionBody = z.strictObject({
