@@ -7,14 +7,38 @@
 * Martin Lopez - `@martnlopez`
 * Carlos Bernales - `@velo0o0`
 
-## Prototipo Navegable
+## Producto publicado
+
+No hace falta instalar nada para probarlo:
+
+| Pieza | Dirección |
+|---|---|
+| **Aplicación** (PWA) | https://safepass.pages.dev |
+| **API** (estado: `/health/ready`) | https://safepass-api-7e00.onrender.com |
+| **Video promocional** | *(enlace pendiente)* |
+
+> La API corre en un plan gratuito que se suspende tras 15 minutos sin uso: la **primera** petición puede tardar cerca de un minuto en responder.
+
+### Cuentas de prueba
+
+Todas son ficticias (no hay datos reales de personas). El PIN de cada cuenta de prueba lo entrega el equipo junto con el enlace de este repositorio; no se guarda aquí.
+
+| Ficha ID | Rol | Para qué |
+|---|---|---|
+| `TRB-0512` | Trabajador | Rendir la evaluación, ver el resultado y generar el pase |
+| `TRB-0513` | Supervisor | Ver el panel del turno, decidir sobre un resultado y validar pases |
+
+Recorrido sugerido: ingresar como trabajador, rendir la evaluación (unos 4 minutos) y generar el pase con QR; luego ingresar como supervisor, ver el resultado en el panel y validar el pase en *Validar pase de entrada*.
+
+## Prototipo Navegable (Hito 1)
 * [Acceder al Prototipo Navegable](https://www.figma.com/make/KWkNwNUc0n31CNZiBMTSvn/Cognitive-Aptitude-Evaluation-UI?t=gRiIrbmpGvLO9aSp-20&fullscreen=1)
 
 ## Documentación del Proyecto
-* [Documento de Propuesta (PDF)](./docs/propuesta.pdf)
-* [Láminas de Presentación (PDF)](./docs/presentacion.pdf)
-* [Mapa del Producto / Arquitectura de Información](./docs/mapa_producto.png)
-* [Diagrama de Arquitectura Técnica](./docs/arquitectura_tecnica.png)
+| Hito | Documento |
+|---|---|
+| 1 | [Documento de Propuesta (PDF)](./docs/propuesta.pdf) · [Láminas de Presentación (PDF)](./docs/presentacion.pdf) · [Mapa del Producto](./docs/mapa_producto.png) · [Diagrama de Arquitectura Técnica](./docs/arquitectura_tecnica.png) |
+| 2 | [Documento técnico del back end (PDF)](./docs/SafePass-Documento-Tecnico-Backend.pdf) · [Contrato de la API](./docs/CONTRATO-API.md) · [OpenAPI](./backend/openapi.yaml) · [Colección de pruebas de la API (Postman)](./docs/SafePass-API.postman_collection.json) · [Modelo de datos y script de creación](./db/README.md) |
+| 3 | [Manual de uso e instalación (PDF)](./docs/Manual-SafePass.pdf) · [Decisiones de arquitectura](./docs/DECISIONES.md) · [Guía de publicación](./docs/PUBLICAR.md) |
 
 ## Ejecutar la app
 
