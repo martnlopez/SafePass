@@ -15,7 +15,7 @@ No hace falta instalar nada para probarlo:
 |---|---|
 | **Aplicación** (PWA) | https://safepass.pages.dev |
 | **API** (estado: `/health/ready`) | https://safepass-api-7e00.onrender.com |
-| **Video promocional** | *(enlace pendiente)* |
+| **Video promocional** (1:27) | [`docs/Video_Safepass.mp4`](./docs/Video_Safepass.mp4) |
 
 > La API corre en un plan gratuito que se suspende tras 15 minutos sin uso: la **primera** petición puede tardar cerca de un minuto en responder.
 
