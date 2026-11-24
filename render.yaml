@@ -1,6 +1,6 @@
 # Backend SafePass en Render (render.com → New → Blueprint → este repositorio).
 # Los secretos no están aquí: Render genera los marcados con generateValue y pide
-# en su panel los marcados con sync: false. Guía: docs/PUBLICAR.md
+# en su panel los marcados con sync: false.
 services:
   - type: web
     name: safepass-api

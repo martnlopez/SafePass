@@ -38,7 +38,7 @@ Recorrido sugerido: ingresar como trabajador, rendir la evaluación (unos 4 minu
 |---|---|
 | 1 | [Documento de Propuesta (PDF)](./docs/propuesta.pdf) · [Láminas de Presentación (PDF)](./docs/presentacion.pdf) · [Mapa del Producto](./docs/mapa_producto.png) · [Diagrama de Arquitectura Técnica](./docs/arquitectura_tecnica.png) |
 | 2 | [Documento técnico del back end (PDF)](./docs/SafePass-Documento-Tecnico-Backend.pdf) · [Contrato de la API](./docs/CONTRATO-API.md) · [OpenAPI](./backend/openapi.yaml) · [Colección de pruebas de la API (Postman)](./docs/SafePass-API.postman_collection.json) · [Modelo de datos y script de creación](./db/README.md) |
-| 3 | [Documentación final del producto (PDF)](./docs/SafePass-Documentacion-Final.pdf) · [Manual de uso e instalación (PDF)](./docs/Manual-SafePass.pdf) · [Decisiones de arquitectura](./docs/DECISIONES.md) · [Guía de publicación](./docs/PUBLICAR.md) |
+| 3 | [Documentación final del producto (PDF)](./docs/SafePass-Documentacion-Final.pdf) · [Manual de uso e instalación (PDF)](./docs/Manual-SafePass.pdf) · [Decisiones de arquitectura](./docs/DECISIONES.md) |
 
 ## Ejecutar la app
 
