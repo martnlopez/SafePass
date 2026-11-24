@@ -1,0 +1,296 @@
+{
+  "info": {
+    "name": "SafePass API (Hito 2)",
+    "description": "Peticiones de la demostración de la API SafePass. Importar en Postman, Insomnia o Bruno.\n\nAntes de usarla:\n1. Variable `serviceUrl`: https://safepass-api-7e00.onrender.com (o http://localhost:3000 si se levanta local). La primera petición al servicio gratuito puede tardar cerca de 1 minuto.\n2. Variable `accessToken`: token de sesión de una cuenta de prueba (no se guarda en el repositorio). Se obtiene al iniciar sesión en la app: en la consola del navegador, `JSON.parse(localStorage.getItem(Object.keys(localStorage).find(k => k.endsWith('-auth-token')))).access_token`.\n3. Ejecutar en orden: la petición 2 guarda `sessionId` y la 3 lo usa.\n\nLa API no expone DELETE: los registros de evaluaciones, decisiones y pases son trazabilidad y no se borran (ver sección 3.5 del documento técnico).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "serviceUrl",
+      "value": "https://safepass-api-7e00.onrender.com"
+    },
+    {
+      "key": "baseUrl",
+      "value": "{{serviceUrl}}/api/v1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Salud del servicio (sin token)",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{serviceUrl}}/health/ready",
+          "host": [
+            "{{serviceUrl}}"
+          ],
+          "path": [
+            "health",
+            "ready"
+          ]
+        },
+        "description": "200 si el servicio está vivo y Supabase responde."
+      }
+    },
+    {
+      "name": "1. Perfil del usuario autenticado",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/app/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "me"
+          ]
+        },
+        "description": "Esperado: 200 con el perfil. Sin token: 401 MISSING_TOKEN."
+      }
+    },
+    {
+      "name": "2. Abrir sesión de evaluación (crear)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created con Location', () => { pm.response.to.have.status(201); pm.response.to.have.header('Location'); });",
+              "pm.collectionVariables.set('sessionId', pm.response.json().id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/app/evaluation-sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "evaluation-sessions"
+          ]
+        },
+        "description": "Esperado: 201 + Location y {\"id\": \"...\"}. Errores posibles: 429 + Retry-After (descanso o demasiadas sesiones), 403 (autorización del supervisor pendiente)."
+      }
+    },
+    {
+      "name": "3. Enviar el resultado del test (crear)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created, o 422 si pasaron menos de 60 s desde la petición 2', () => pm.expect([201, 422]).to.include(pm.response.code));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"durationSeconds\": 241,\n  \"breakdown\": [\n    { \"key\": \"figuras\",  \"name\": \"Selección de Figuras\", \"score\": 92, \"detail\": \"Precisión 92% · TR 640ms\" },\n    { \"key\": \"pvt\",      \"name\": \"PVT Táctil\",           \"score\": 88, \"detail\": \"TR medio 312ms · 1 lapsos\" },\n    { \"key\": \"gonogo\",   \"name\": \"Go/No-Go\",             \"score\": 85, \"detail\": \"Aciertos 90% · Falsos + 20%\" },\n    { \"key\": \"memoria\",  \"name\": \"Memoria de Trabajo\",   \"score\": 67, \"detail\": \"Span máx. 5 casillas · 2/3 niveles\" },\n    { \"key\": \"tracking\", \"name\": \"Tracking Numérico\",    \"score\": 90, \"detail\": \"4 series · 2 errores\" }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/app/evaluation-sessions/{{sessionId}}/result",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "evaluation-sessions",
+            "{{sessionId}}",
+            "result"
+          ]
+        },
+        "description": "Esperar al menos 60 s después de la petición 2 (el servidor rechaza tests más rápidos: 422 EVALUATION_TOO_FAST). Esperado: 201 con puntaje y estado calculados por el servidor. Repetir esta misma petición devuelve 200 con replayed:true (idempotente), sin duplicar."
+      }
+    },
+    {
+      "name": "4. Último resultado propio (leer)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/app/me/evaluations/latest",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "me",
+            "evaluations",
+            "latest"
+          ]
+        },
+        "description": "Esperado: 200 con {\"data\": {...}}: el dato quedó guardado."
+      }
+    },
+    {
+      "name": "5. Pase de acceso (crear / recuperar)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/app/access-passes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "access-passes"
+          ]
+        },
+        "description": "Solo con resultado APTO vigente. Esperado: 200 con el código SP-XXXXXX. Con SEMI-APTO o NO APTO: 422 PASS_NOT_ALLOWED."
+      }
+    },
+    {
+      "name": "6. Validar un pase en portería (cuenta supervisora)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"SP-2AAE91\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/app/pass-validations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "pass-validations"
+          ]
+        },
+        "description": "Requiere el token de una cuenta supervisora (con un trabajador: 403 NOT_ALLOWED). Reemplazar el código por el de la petición 5. Esperado: 200 con status valid, expired, revoked o invalid."
+      }
+    },
+    {
+      "name": "7. Marcar una decisión como vista (actualizar)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"seen\": true\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/app/decisions/:decisionId",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "decisions",
+            ":decisionId"
+          ],
+          "variable": [
+            {
+              "key": "decisionId",
+              "value": "",
+              "description": "id de una decisión del trabajador"
+            }
+          ]
+        },
+        "description": "Esperado: 204 sin cuerpo. Un cuerpo con otro campo: 400 VALIDATION_ERROR. Decisión inexistente: 404."
+      }
+    },
+    {
+      "name": "E1. Error: sin token → 401",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/app/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "me"
+          ]
+        },
+        "description": "Esperado: 401 {\"error\":{\"code\":\"MISSING_TOKEN\",...}}"
+      }
+    },
+    {
+      "name": "E2. Error: campo no declarado → 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"breakdown\": [],\n  \"score\": 100\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/app/evaluation-sessions/00000000-0000-0000-0000-000000000000/result",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "app",
+            "evaluation-sessions",
+            "00000000-0000-0000-0000-000000000000",
+            "result"
+          ]
+        },
+        "description": "El cliente no puede enviar su propio puntaje. Esperado: 400 VALIDATION_ERROR."
+      }
+    }
+  ]
+}
